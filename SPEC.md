@@ -8,7 +8,7 @@
 
 **What we ship in 2 days.** A live `https://margin.<chosen-tld>` landing page with copyable MCP install command, a Next.js dashboard at `/app` rendering an agent activity timeline, and a Python FastAPI + FastMCP service exposing eight tools and a REST mirror, backed by Neon Postgres + pgvector and Cloudflare R2. End-to-end demo: Claude Desktop user adds Margin via a single URL, runs a literature review, closes the chat, opens a new chat the next day, queries findings semantically, branches to investigate a contradiction, requests human review, publishes a markdown report.
 
-**Cost.** $0 recurring, optionally $0.99 for a `.xyz` domain. Stack: Koyeb (FastAPI), Cloudflare Pages (Next.js), Neon (Postgres + pgvector), Cloudflare R2 (raw HTML), GitHub Actions (CI), Gemini Embedding 001 @ 768d (embeddings), Groq llama-3.3-70b (light LLM), Gemini 2.5 Flash (long-context fallback).
+**Cost.** $0 recurring, optionally $0.99 for a `.xyz` domain. Stack: Koyeb (FastAPI), Cloudflare Pages (Next.js), Neon (Postgres + pgvector), Cloudflare R2 (raw HTML), GitHub Actions (CI), Voyage 3.5-lite @ 768d (embeddings, with local `bge-small-en-v1.5` fallback), Groq llama-3.3-70b (LLM).
 
 **Deliverable.** Live URL, public GitHub repo, a 60-second founders' video for the YC form, and a 90-second screen recording of Claude using Margin end-to-end.
 
@@ -18,7 +18,7 @@
 
 A solo developer named Sara is using Claude Desktop. She visits `margin.dev`, copies the single-line install (`Add to Claude → https://api.margin.dev/mcp/ag_live_aB12...`), pastes it into Claude.ai → Settings → Connectors. Claude immediately sees eight Margin tools.
 
-Sara types: _"Research the state of free-tier MCP hosting in April 2026 and remember everything you learn."_ Claude calls `start_research(topic="free-tier MCP hosting", depth="thorough", deadline=null)` and gets `project_id=p_K1aZ9...`. It browses with its own web tools, then calls `add_finding(project_id, claim="Render free web tier sleeps after 15 min", evidence="<quote>", source="https://render.com/...", confidence=0.9)` ten to fifteen times. For each, it follows up with `cite(finding_id, url, excerpt)`. Margin fetches each URL server-side via trafilatura, hashes the cleaned markdown, stores raw HTML in R2, and embeds the claim+evidence with Gemini at 768 dimensions into pgvector.
+Sara types: _"Research the state of free-tier MCP hosting in April 2026 and remember everything you learn."_ Claude calls `start_research(topic="free-tier MCP hosting", depth="thorough", deadline=null)` and gets `project_id=p_K1aZ9...`. It browses with its own web tools, then calls `add_finding(project_id, claim="Render free web tier sleeps after 15 min", evidence="<quote>", source="https://render.com/...", confidence=0.9)` ten to fifteen times. For each, it follows up with `cite(finding_id, url, excerpt)`. Margin fetches each URL server-side via trafilatura, hashes the cleaned markdown, stores raw HTML in R2, and embeds the claim+evidence with Voyage 3.5-lite (truncated to 768 dimensions, L2-renormalized) into pgvector.
 
 Sara closes the chat and goes to bed. The next morning she opens a fresh Claude conversation and says _"continue the MCP hosting research and look for contradictions."_ Claude calls `list_projects(agent_id)`, gets `p_K1aZ9` back with a summary, then `query_findings(project_id, semantic_query="cold start times")` and gets the prior findings ranked by cosine similarity. It identifies a contradiction (one source says Koyeb cold-starts in seconds, another in milliseconds), calls `branch_project(project_id, reason="contradicting cold-start claims")` to fork a sub-investigation, and resolves it. It then calls `request_human_review(project_id, reason="confidence on hosted-MCP-on-Render claim < 0.7")`. Sara gets a notification on the `/app` dashboard, opens it, sees the agent's reasoning trace and the live timeline, approves. Claude calls `publish_report(project_id, format="markdown")` and returns a stable URL like `https://margin.dev/r/p_K1aZ9` that Sara shares on Twitter.
 
@@ -108,7 +108,7 @@ CREATE TABLE findings (
     source_url      TEXT,
     confidence      REAL NOT NULL CHECK (confidence BETWEEN 0 AND 1),
     contradicts     TEXT REFERENCES findings(finding_id),  -- optional pointer
-    embedding       VECTOR(768),                            -- gemini-embedding-001 @ 768d via MRL
+    embedding       VECTOR(768),                            -- voyage-3.5-lite 1024d → truncated to 768d → L2-renormalized
     content_hash    TEXT NOT NULL,                          -- sha256 of claim||evidence
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -211,11 +211,11 @@ Every tool returns a `structuredContent` JSON object **and** a one-line human-re
 
 1. Compute `content_hash = sha256(normalize(claim||evidence))`.
 2. If a finding with the same `content_hash` already exists in this `project_id`, return the existing `finding_id` (idempotent).
-3. Otherwise: embed `claim + " " + evidence` via Gemini Embedding 001 at 768 dims, INSERT into `findings`, write an `events` row, return `finding_id`.
+3. Otherwise: embed `claim + " " + evidence` via Voyage 3.5-lite (truncated to 768d, L2-renormalized; falls back to local `bge-small-en-v1.5` on Voyage error), INSERT into `findings`, write an `events` row, return `finding_id`.
 
 **Output:** `{ finding_id, project_id, created_at, deduped: bool, resource_uri: "findings://<project_id>/<finding_id>" }`.
 
-**Errors:** `400` bad project, `401`, `409` if `contradicts` not in same project, `429` if Gemini quota exhausted (server falls back to Voyage).
+**Errors:** `400` bad project, `401`, `409` if `contradicts` not in same project. Voyage failures auto-fall-back to the local model — never surface 429 to the agent.
 
 #### `cite(finding_id, url, excerpt) → citation_id`
 
@@ -231,7 +231,7 @@ Every tool returns a `structuredContent` JSON object **and** a one-line human-re
 
 > Semantic search over a project's findings. Use this to recall what has already been discovered before adding redundant findings.
 
-**Server side:** embed `semantic_query` with the same Gemini call, run `SELECT ... ORDER BY embedding <=> :q LIMIT :limit` against pgvector. Filter by `confidence >= min_confidence`. Return `{finding_id, claim, evidence_excerpt, source_url, confidence, similarity}` for each.
+**Server side:** embed `semantic_query` via Voyage with `input_type="query"` (query-time hint specializes the representation; documents were embedded with `input_type="document"`), run `SELECT ... ORDER BY embedding <=> :q LIMIT :limit` against pgvector. Filter by `confidence >= min_confidence`. Return `{finding_id, claim, evidence_excerpt, source_url, confidence, similarity}` for each.
 
 **Output:** `{ project_id, query, results: [...], total }`.
 
@@ -256,7 +256,7 @@ Every tool returns a `structuredContent` JSON object **and** a one-line human-re
 1. Pull all `findings` ordered by created_at.
 2. Group by `confidence > 0.7` (Confirmed) vs lower (Tentative).
 3. For each, render `### <claim>\n\n<evidence>\n\n[source](<source_url>) · cited <date>`.
-4. If we have time, send the bullets to Gemini 2.5 Flash with a 200-token system prompt to produce a TOC + intro paragraph, prepended.
+4. If we have time, send the bullets to Groq `llama-3.3-70b-versatile` with a 200-token system prompt to produce a TOC + intro paragraph, prepended. On any LLM error, ship the naive markdown.
 5. Write to `reports`, return `https://margin.<tld>/r/<public_slug>`.
 
 #### `list_projects(agent_id?, limit?=20, status?) → projects[]`
@@ -315,8 +315,8 @@ margin/
 │   │   │   │   ├── reviews.py
 │   │   │   │   ├── reports.py      # markdown rendering
 │   │   │   │   └── events.py       # SSE pub/sub via Postgres LISTEN/NOTIFY
-│   │   │   ├── embeddings.py  # Gemini primary, Voyage fallback
-│   │   │   ├── llm.py         # Groq primary, Gemini Flash fallback
+│   │   │   ├── embeddings.py  # Voyage primary, local bge-small fallback
+│   │   │   ├── llm.py         # Groq only (no fallback; degrade to naive markdown)
 │   │   │   ├── storage.py     # R2 boto3 client
 │   │   │   ├── routes_rest.py # /v1/* endpoints
 │   │   │   └── mcp_server.py  # FastMCP registration of 8 tools
@@ -384,7 +384,7 @@ Each block lists the work, files touched, and binary acceptance criteria. Treat 
 
 **Tasks.**
 
-1. `embeddings.py`: `async def embed(texts: list[str]) -> list[list[float]]`. Primary: Gemini `gemini-embedding-001` with `output_dimensionality=768`. On 429/5xx, retry once with 1 s backoff, then fall back to Voyage `voyage-4-lite` (1024 d, truncate to 768 via slicing — note the **L2-renormalize** step required after slicing). Cache in-process by `sha256(text)` for the lifetime of the request batch.
+1. `embeddings.py`: `async def embed(texts: list[str], input_type: str = "document") -> list[list[float]]`. Primary: Voyage `voyage-3.5-lite` at 1024d, truncate to 768d via slicing then **L2-renormalize** (required after slicing — pgvector's `<=>` cosine distance assumes unit-norm vectors). Fallback (any exception): lazy-load `BAAI/bge-small-en-v1.5` via `sentence-transformers`, encode with `normalize_embeddings=True`, zero-pad 384→768, L2-renormalize. Cache in-process by `sha256(text+input_type)` for the lifetime of the request batch. Callers: `add_finding` passes `input_type="document"`; `query_findings` passes `"query"`. See the canonical implementation in §9.
 2. `services/findings.py`: implement `add_finding` with the dedup-on-content-hash logic. Embed once, INSERT once, emit one event row. The CHECK on `confidence` is enforced server-side too; reject early.
 3. `services/citations.py`: `cite()` runs `httpx.get`, calls `trafilatura.extract(html, output_format="markdown", with_metadata=True, favor_precision=True)`, hashes via `hashlib.sha256(" ".join(md.split()).encode())`, uploads HTML to R2 with key `pages/<page_hash>.html` and `Content-Type: text/html`. Wraps R2 errors so the citation is still recorded with `fetch_status=0`.
 4. `storage.py`: boto3 client with `endpoint_url=https://<acct>.r2.cloudflarestorage.com`, `region_name="auto"`. One method: `put_html(key, html_bytes) -> None`. One method: `signed_get(key, ttl=604800) -> str`.
@@ -444,18 +444,18 @@ Each block lists the work, files touched, and binary acceptance criteria. Treat 
 
 ## 7. Hosting and deployment specifics — chosen services and why
 
-| Slot                   | Choice                                            | Rationale                                                                                                                                                                                                                                    | Fallback                                                                      |
-| ---------------------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | --- | --- |
-| Backend compute        | **Koyeb free instance**                           | Persistent process, no credit card, commercial use allowed, scales to zero only after 1 h idle. Render free sleeps after 15 min and cold-starts in 30+ s, which breaks Claude's MCP handshake. Railway and Fly.io no longer have free tiers. | Fly.io shared-cpu-1x@256MB at ~$2/mo if Koyeb cold starts during the demo.    |
-| Frontend               | **Cloudflare Pages**                              | Unlimited bandwidth, no commercial-use restriction (Vercel Hobby explicitly bans commercial use, which a YC startup application is), 100k Functions/day, no hard pause cliff.                                                                | Vercel Hobby for the development phase only.                                  |
-| Postgres + vectors     | **Neon free**                                     | Never paused on inactivity (unlike Supabase's 7-day pause), pgvector built-in, 0.5 GB per project, commercial OK, no credit card. The combination of "always-reachable" and "pgvector in the same DB" eliminates an entire service.          | Supabase free with a GitHub Action keep-alive ping every 6 days.              |
-| Blob storage           | **Cloudflare R2**                                 | 10 GB free,**zero egress forever** , S3-compatible boto3. A YC partner clicking the demo report 50 times is free; on Backblaze or S3 it isn't.                                                                                               | Backblaze B2 with Cloudflare in front.                                        |
-| Auth                   | **Roll-your-own bcrypt API keys**in `agents`table | Clerk's M2M tokens started billing March 16 2026; agent users don't need OAuth flows. ~30 lines of code, zero recurring cost.                                                                                                                | None needed.                                                                  |
-| Embeddings             | **Gemini Embedding 001 @ 768d (Matryoshka)**      | 100 RPM × 1000 RPD covers ~10× our budget. SOTA on MTEB Multilingual (68.32). 768d via MRL keeps the vector column small.                                                                                                                    | Voyage `voyage-4-lite`(200M-token free pool) on quota exhaustion.             |
-| LLM (light)            | **Groq llama-3.3-70b-versatile**                  | 30 RPM, 14.4k RPD, no credit card, ~500 tok/s. Used for dedup and TOC.                                                                                                                                                                       | Gemini 2.5 Flash for long-context. Cerebras llama-4-scout for batch overflow. |
-| Web fetch + extraction | **httpx + trafilatura**                           | Trafilatura beats readability-lxml and newspaper3k in independent benchmarks (F1 0.94+); built-in markdown output; no Playwright required.                                                                                                   | Add Playwright only if a target source is JS-rendered.                        |
-| CI/CD                  | **GitHub Actions**                                | Free unlimited minutes for public repos.                                                                                                                                                                                                     | Built-in Pages/Koyeb Git deploys for redundancy.                              |
-| Domain                 | **`.dev`from Cloudflare Registrar (~$11/yr)**     | Auto-HTTPS, recognizable as a developer/AI product, at-cost pricing. The single line item worth a buck for YC credibility.                                                                                                                   | `.xyz`at $0.99 from Namecheap; or `*.koyeb.app`+`*.pages.dev`for $0.          |     |     |
+| Slot | Choice | Rationale | Fallback |
+|---|---|---|---|
+| Backend compute | **Koyeb free instance** | Persistent process, no credit card, commercial use allowed, scales to zero only after 1 h idle. Render free sleeps after 15 min and cold-starts in 30+ s, which breaks Claude's MCP handshake. Railway and Fly.io no longer have free tiers. | Fly.io shared-cpu-1x@256MB at ~$2/mo if Koyeb cold starts during the demo. |
+| Frontend | **Cloudflare Pages** | Unlimited bandwidth, no commercial-use restriction (Vercel Hobby explicitly bans commercial use, which a YC startup application is), 100k Functions/day, no hard pause cliff. | Vercel Hobby for the development phase only. |
+| Postgres + vectors | **Neon free** | Never paused on inactivity (unlike Supabase's 7-day pause), pgvector built-in, 0.5 GB per project, commercial OK, no credit card. The combination of "always-reachable" and "pgvector in the same DB" eliminates an entire service. | Supabase free with a GitHub Action keep-alive ping every 6 days. |
+| Blob storage | **Cloudflare R2** | 10 GB free, zero egress forever, S3-compatible boto3. A YC partner clicking the demo report 50 times is free; on Backblaze or S3 it isn't. | Backblaze B2 with Cloudflare in front. |
+| Auth | **Roll-your-own bcrypt API keys** in `agents` table | Clerk's M2M tokens started billing March 16 2026; agent users don't need OAuth flows. ~30 lines of code, zero recurring cost. | None needed. |
+| Embeddings | **Voyage 3.5-lite @ 1024d, truncated to 768d + L2-renormalized** | Best-in-class retrieval quality (top of MTEB English), 200M free tokens (effectively bottomless for our volume of ~100-200 embeddings/day), no credit card required, independent provider — clean story for a product storing third-party research data. | `sentence-transformers/bge-small-en-v1.5` running locally in the Koyeb container (384d, no API call, never throttles). |
+| LLM (light) | **Groq llama-3.3-70b-versatile** | 30 RPM, 14.4k RPD, no credit card, ~500 tok/s. Used only for the report TOC at publish time. The fast streaming makes the publish moment feel instant in the demo. | Groq `llama-3.1-8b-instant` for overflow; or skip the TOC entirely and ship the naive markdown grouping. |
+| Web fetch + extraction | **httpx + trafilatura** | Trafilatura beats readability-lxml and newspaper3k in independent benchmarks (F1 0.94+); built-in markdown output; no Playwright required. | Add Playwright only if a target source is JS-rendered. |
+| CI/CD | **GitHub Actions** | Free unlimited minutes for public repos. | Built-in Pages/Koyeb Git deploys for redundancy. |
+| Domain | **`.dev` from Cloudflare Registrar (~$11/yr)** | Auto-HTTPS, recognizable as a developer/AI product, at-cost pricing. The single line item worth a buck for YC credibility. | `.xyz` at $0.99 from Namecheap; or `*.koyeb.app` + `*.pages.dev` for $0. |
 
 **Hard avoid list, with reasons:**
 
@@ -466,6 +466,7 @@ Each block lists the work, files touched, and binary acceptance criteria. Treat 
 - Firebase Storage — removed from the Spark plan in February 2026.
 - Freenom domains — effectively defunct.
 - Clerk M2M tokens — started billing March 16 2026.
+- Gemini — not used. Voyage covers embeddings; Groq covers the LLM.
 
 ---
 
@@ -480,20 +481,15 @@ JWT_SECRET=<32 random bytes hex>           # for short-lived dashboard sessions
 PUBLIC_BASE_URL=https://margin.dev
 API_BASE_URL=https://api.margin.dev
 
-# Embeddings (Gemini)
-GEMINI_API_KEY=AIza...                     # AI Studio, no GCP billing
-GEMINI_EMBED_MODEL=gemini-embedding-001
-GEMINI_EMBED_DIM=768
-
-# Embedding fallback (Voyage)
+# Embeddings (Voyage)
 VOYAGE_API_KEY=pa-...
+VOYAGE_EMBED_MODEL=voyage-3.5-lite
+VOYAGE_EMBED_DIM_RAW=1024                  # native output dim
+EMBED_DIM=768                              # what we store after truncate + renormalize
 
 # LLM (Groq)
 GROQ_API_KEY=gsk_...
 GROQ_MODEL=llama-3.3-70b-versatile
-
-# LLM fallback (Gemini Flash)
-GEMINI_LLM_MODEL=gemini-2.5-flash
 
 # Cloudflare R2
 R2_ACCOUNT_ID=...
@@ -528,7 +524,77 @@ NEXT_PUBLIC_API_BASE=https://api.margin.dev
 
 **Provenance pipeline.** When an agent calls `cite()`: fetch with httpx → extract with trafilatura → hash cleaned markdown → upload raw HTML to R2 → write row. On `publish_report`, generate signed R2 URLs for each citation and embed them. The agent gets durable receipts.
 
-**Embedding economics.** 100 findings/day × ~500 tokens = 50k tokens/day, well under Gemini's free quotas. We dedupe on insert via `content_hash`. We L2-normalize on insert (pgvector's `<=>` operator works either way, but pre-normalized vectors avoid a per-query cost). HNSW index handles up to ~1M rows comfortably.
+**Embedding economics.** 100 findings/day × ~500 tokens = 50k tokens/day, well under Voyage's 200M-token free pool — we'd hit it after roughly 11 years of continuous use at this rate. We dedupe on insert via `content_hash`, so an agent loop can't burn budget. We truncate Voyage's 1024-dim output to 768 dims and **L2-renormalize after truncation** (this step is non-optional — slicing breaks the unit-norm property and pgvector's `<=>` cosine distance assumes normalized vectors for best behavior). HNSW index handles up to ~1M rows comfortably. If Voyage ever errors out, we degrade to local `bge-small-en-v1.5` running in the Koyeb container — slower per call but never throttles, and 384d is fine for our scale (we just pad to 768 with zeros and renormalize so the column dimension stays stable).
+
+### Reference implementation: `embeddings.py`
+
+This is the file the coding agent should write — it is the contract for §9 above.
+
+```python
+import asyncio
+import hashlib
+import math
+import os
+from typing import Sequence
+
+import voyageai
+
+EMBED_DIM = 768
+
+_voyage = voyageai.AsyncClient(api_key=os.environ["VOYAGE_API_KEY"])
+_local_model = None  # lazy-loaded on fallback
+
+
+def _l2_normalize(vec: list[float]) -> list[float]:
+    n = math.sqrt(sum(x * x for x in vec))
+    if n == 0:
+        return vec
+    return [x / n for x in vec]
+
+
+def _truncate_and_renormalize(vec: list[float], target_dim: int) -> list[float]:
+    return _l2_normalize(vec[:target_dim])
+
+
+async def _embed_voyage(texts: Sequence[str], input_type: str) -> list[list[float]]:
+    resp = await _voyage.embed(
+        texts=list(texts),
+        model=os.environ.get("VOYAGE_EMBED_MODEL", "voyage-3.5-lite"),
+        input_type=input_type,  # "document" on insert, "query" on search
+    )
+    return [_truncate_and_renormalize(e, EMBED_DIM) for e in resp.embeddings]
+
+
+def _ensure_local():
+    global _local_model
+    if _local_model is None:
+        from sentence_transformers import SentenceTransformer
+        _local_model = SentenceTransformer("BAAI/bge-small-en-v1.5")
+    return _local_model
+
+
+async def _embed_local(texts: Sequence[str]) -> list[list[float]]:
+    model = _ensure_local()
+    raw = await asyncio.to_thread(model.encode, list(texts), normalize_embeddings=True)
+    out = []
+    for v in raw.tolist():
+        # bge-small is 384d; pad to EMBED_DIM with zeros, then renormalize
+        padded = list(v) + [0.0] * (EMBED_DIM - len(v))
+        out.append(_l2_normalize(padded))
+    return out
+
+
+async def embed(texts: Sequence[str], input_type: str = "document") -> list[list[float]]:
+    """Primary: Voyage 3.5-lite. Fallback: local bge-small. Always returns 768-d unit vectors."""
+    if not texts:
+        return []
+    try:
+        return await _embed_voyage(texts, input_type)
+    except Exception:
+        return await _embed_local(texts)
+```
+
+Two consequences worth knowing. First, `add_finding` should call `embed([claim + " " + evidence], input_type="document")`; `query_findings` should call `embed([semantic_query], input_type="query")`. Voyage uses these hints to specialize representations and it does measurably help retrieval. Second, the bge fallback's 384→768 zero-padding is a hack; it preserves the column dimension so we don't have to rebuild the HNSW index, but quality drops. If we ever stay on the fallback long enough to care, swap `bge-small` for `bge-base-en-v1.5` (768 native) — same file, two-line change.
 
 **Idempotency.** Every write tool is idempotent on a sensible key: `add_finding` on `(project_id, content_hash)`; `cite` on `(finding_id, page_hash)`; `start_research` is **not** idempotent on `topic` (deliberate — agents should be free to start parallel investigations of the same topic). This protects free-tier costs against an agent loop.
 
@@ -646,7 +712,7 @@ and hands off across sessions. Built for Aaron Epstein's "Software for Agents" R
 
 ```bash
 docker run -p 8080:8080 \
-  -e DATABASE_URL=... -e GEMINI_API_KEY=... -e GROQ_API_KEY=... \
+  -e DATABASE_URL=... -e VOYAGE_API_KEY=... -e GROQ_API_KEY=... \
   ghcr.io/<you>/margin-api:latest
 ```
 
@@ -690,7 +756,7 @@ MIT licensed.
 | Risk | Likelihood | Impact | Mitigation | If it bites: cut |
 |---|---|---|---|---|
 | Koyeb scales to zero between demo retakes | Medium | Demo cold-starts | Send a heartbeat from the dashboard every 30 min during demo day | Move to Fly.io shared-cpu at $2/mo |
-| Gemini free-tier RPD throttles at the wrong moment | Medium | Findings fail to embed | Voyage fallback wired in `embeddings.py` from day 1 | Pre-embed everything during the demo run |
+| Voyage free-tier throttles at the wrong moment | Low | Findings fall back to local bge-small (slower, lower quality) | Local `bge-small-en-v1.5` fallback wired in `embeddings.py` from day 1; it never throttles | Warm the local model at boot if we expect heavy load |
 | Claude.ai connector UI changes between dev and demo | Low | Install path differs | Document both Claude.ai and Claude API Managed Agents paths | Show the REST curl path in the demo instead |
 | pgvector HNSW build slow on Neon free | Low | Slow first query | Index built once at migration time | Switch to ivfflat |
 | trafilatura fails on JS-rendered sources | Medium | Citation has empty markdown | Citation row still inserted with `fetch_status=0`; agent can retry | Skip extraction; store raw HTML only |

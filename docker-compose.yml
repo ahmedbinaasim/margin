@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: margin-postgres
+    environment:
+      POSTGRES_USER: margin
+      POSTGRES_PASSWORD: margin
+      POSTGRES_DB: margin
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U margin -d margin"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres-data:

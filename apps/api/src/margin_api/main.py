@@ -70,8 +70,24 @@ def create_app() -> FastAPI:
         app.mount("/mcp", mcp_app)
 
     @app.get("/healthz")
-    async def healthz() -> dict[str, str]:
-        return {"status": "ok"}
+    async def healthz() -> dict[str, object]:
+        from .db import acquire
+
+        checks: dict[str, object] = {"status": "ok"}
+        try:
+            async with acquire() as conn:
+                await conn.fetchval("SELECT 1")
+            checks["db"] = "ok"
+        except Exception as e:
+            checks["status"] = "degraded"
+            checks["db"] = f"error: {type(e).__name__}"
+
+        from . import storage
+
+        checks["r2"] = "configured" if storage.is_enabled() else "disabled"
+        checks["voyage"] = "configured" if get_settings().voyage_api_key else "disabled"
+        checks["groq"] = "configured" if get_settings().groq_api_key else "disabled"
+        return checks
 
     return app
 

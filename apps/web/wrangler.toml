@@ -1,0 +1,6 @@
+name = "margin-web"
+compatibility_date = "2026-01-15"
+pages_build_output_dir = "out"
+
+[vars]
+NEXT_PUBLIC_API_BASE = "https://api.margin.dev"

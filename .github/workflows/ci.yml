@@ -1,0 +1,142 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_live:
+        description: "Also run @pytest.mark.live tests against real providers"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  api-lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with:
+          version: "0.11.x"
+      - name: Install
+        run: uv sync --all-extras
+      - name: Ruff
+        run: uv run ruff check .
+      - name: Mypy (non-blocking)
+        run: uv run mypy src/margin_api || true
+
+  api-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: margin
+          POSTGRES_PASSWORD: margin
+          POSTGRES_DB: margin_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U margin -d margin_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://margin:margin@localhost:5432/margin_test
+      DATABASE_URL: postgresql://margin:margin@localhost:5432/margin_test
+      VOYAGE_API_KEY: test-key
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with:
+          version: "0.11.x"
+      - name: Install
+        run: uv sync --all-extras
+      - name: Pytest
+        run: uv run pytest -q
+
+  sdk-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/sdk-py
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with:
+          version: "0.11.x"
+      - name: Install
+        run: uv pip install --system -e ".[dev]" pytest-asyncio
+      - name: Pytest
+        run: pytest -q
+
+  web-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install
+        run: npm install
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build (static export)
+        run: npm run build
+
+  live-tests:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_live == true }}
+    runs-on: ubuntu-latest
+    needs: [api-tests]
+    defaults:
+      run:
+        working-directory: apps/api
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: margin
+          POSTGRES_PASSWORD: margin
+          POSTGRES_DB: margin_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U margin -d margin_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://margin:margin@localhost:5432/margin_test
+      DATABASE_URL: postgresql://margin:margin@localhost:5432/margin_test
+      VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with:
+          version: "0.11.x"
+      - name: Install
+        run: uv sync --all-extras
+      - name: Live pytest
+        run: uv run pytest -q -m live

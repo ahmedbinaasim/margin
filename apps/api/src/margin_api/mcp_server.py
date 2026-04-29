@@ -23,12 +23,19 @@ from .config import get_settings
 from .rate_limit import check as rate_check
 from .services import (
     citations as citations_svc,
+)
+from .services import (
     findings as findings_svc,
+)
+from .services import (
     projects as projects_svc,
+)
+from .services import (
     reports as reports_svc,
+)
+from .services import (
     reviews as reviews_svc,
 )
-
 
 mcp = FastMCP("margin")
 
@@ -144,7 +151,7 @@ async def add_finding(
             contradicts=contradicts,
         )
     except ValueError as e:
-        raise ValueError(str(e))
+        raise ValueError(str(e)) from e
 
     return m.AddFindingOutput(
         finding_id=result["finding_id"],
@@ -259,7 +266,7 @@ async def branch_project(
             reason=reason,
         )
     except ValueError as e:
-        raise ValueError(str(e))
+        raise ValueError(str(e)) from e
     return m.BranchProjectOutput(
         project_id=row["project_id"],
         parent_id=row["parent_id"],

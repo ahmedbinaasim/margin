@@ -60,7 +60,7 @@ async def decide(
             review_id,
         )
         if row is not None:
-            # Bring the project back to active on approval.
-            new_status = "active" if decision == "approved" else "active"
-            await projects_svc.update_status(row["project_id"], new_status, conn=conn)
+            # Approve OR reject: project rejoins the active queue. Stale review
+            # row is preserved by status='approved'/'rejected' on `reviews`.
+            await projects_svc.update_status(row["project_id"], "active", conn=conn)
     return dict(row) if row else None

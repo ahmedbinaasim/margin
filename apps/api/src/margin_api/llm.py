@@ -6,10 +6,9 @@ if Groq errors, ``publish_report`` falls back to the naive markdown grouping.
 
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
 from .config import get_settings
-
 
 _client = None
 

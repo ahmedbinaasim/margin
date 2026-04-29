@@ -15,10 +15,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import math
-from typing import Sequence
+from collections.abc import Sequence
 
 from .config import get_settings
-
 
 _voyage_client = None
 _local_model = None

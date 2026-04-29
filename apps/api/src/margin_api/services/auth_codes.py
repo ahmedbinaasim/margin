@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from ..auth import hash_code
 from ..config import get_settings
 from ..db import acquire
-
 
 CODE_TTL_MIN = 10
 
@@ -25,7 +24,7 @@ async def request_code(email: str) -> tuple[str, bool]:
     """
     settings = get_settings()
     code = _new_code()
-    expires = datetime.now(timezone.utc) + timedelta(minutes=CODE_TTL_MIN)
+    expires = datetime.now(UTC) + timedelta(minutes=CODE_TTL_MIN)
 
     async with acquire() as conn:
         # Upsert owner so the email always exists.
@@ -88,7 +87,7 @@ async def verify_code(email: str, code: str) -> str | None:
                 return None
             if row["used_at"] is not None:
                 return None
-            if row["expires_at"] < datetime.now(timezone.utc):
+            if row["expires_at"] < datetime.now(UTC):
                 return None
 
             await conn.execute(

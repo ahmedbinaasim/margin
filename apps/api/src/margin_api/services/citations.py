@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
@@ -24,7 +24,6 @@ import httpx
 from .. import storage
 from ..db import acquire
 from . import events as events_svc
-
 
 _TRACKING_PARAMS = {
     "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
@@ -92,7 +91,7 @@ async def cite(
         ) as client:
             resp = await client.get(url)
         fetch_status = resp.status_code
-        fetched_at = datetime.now(timezone.utc)
+        fetched_at = datetime.now(UTC)
         raw_html = resp.content
         if 200 <= resp.status_code < 300 and raw_html:
             try:
@@ -110,7 +109,7 @@ async def cite(
     except Exception:
         # Network error, DNS fail, timeout. Record the row anyway.
         fetch_status = 0
-        fetched_at = datetime.now(timezone.utc)
+        fetched_at = datetime.now(UTC)
 
     if md_text:
         page_hash = _page_hash(md_text)

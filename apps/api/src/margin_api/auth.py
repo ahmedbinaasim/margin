@@ -133,7 +133,9 @@ def decode_owner_token(token: str) -> Owner:
     try:
         payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
     except jwt.PyJWTError as e:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"bad token: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=f"bad token: {e}"
+        ) from e
     if payload.get("scope") != "owner":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="bad scope")
     return Owner(owner_id=payload["sub"], email=payload["email"])

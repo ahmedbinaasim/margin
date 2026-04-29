@@ -9,12 +9,10 @@ from __future__ import annotations
 import asyncio
 import time
 from collections import defaultdict, deque
-from typing import Deque, Dict
 
 from .config import get_settings
 
-
-_buckets: Dict[str, Deque[float]] = defaultdict(deque)
+_buckets: dict[str, deque[float]] = defaultdict(deque)
 _lock = asyncio.Lock()
 _WINDOW_SEC = 60.0
 

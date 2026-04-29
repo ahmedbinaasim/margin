@@ -16,7 +16,6 @@ from ..db import acquire
 from . import events as events_svc
 from . import projects as projects_svc
 
-
 CONFIRMED_THRESHOLD = 0.7
 
 

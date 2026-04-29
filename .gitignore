@@ -57,3 +57,4 @@ uv.lock
 *.sqlite
 *.sqlite3
 postgres-data/
+.claude/settings.local.json

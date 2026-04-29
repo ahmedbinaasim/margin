@@ -30,7 +30,7 @@ from .services import (
 )
 
 
-mcp = FastMCP("margin", stateless_http=True)
+mcp = FastMCP("margin")
 
 
 def _agent_from_ctx(ctx: Context):
@@ -433,5 +433,5 @@ class APIKeyPathMiddleware:
 
 def build_mcp_app():
     """Return the ASGI app to mount at ``/mcp``."""
-    inner = mcp.http_app(transport="streamable-http")
+    inner = mcp.http_app(transport="streamable-http", stateless_http=True)
     return APIKeyPathMiddleware(inner)

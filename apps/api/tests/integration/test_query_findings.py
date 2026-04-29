@@ -7,7 +7,7 @@ import pytest
 async def test_query_returns_results_under_filter(client, agent):
     _, _, key = agent
     h = {"Authorization": f"Bearer {key}"}
-    p = (await client.post("/v1/projects", json={"topic": "t", "depth": "quick"}, headers=h)).json()
+    p = (await client.post("/v1/projects", json={"topic": "test topic", "depth": "quick"}, headers=h)).json()
 
     facts = [
         ("Koyeb cold-starts in seconds", 0.9),
@@ -38,7 +38,7 @@ async def test_query_returns_results_under_filter(client, agent):
 async def test_query_unauthorized_for_other_agent(client, agent, db_pool):
     _, _, key1 = agent
     h1 = {"Authorization": f"Bearer {key1}"}
-    p = (await client.post("/v1/projects", json={"topic": "t", "depth": "quick"}, headers=h1)).json()
+    p = (await client.post("/v1/projects", json={"topic": "test topic", "depth": "quick"}, headers=h1)).json()
 
     import bcrypt
     import secrets
@@ -58,7 +58,7 @@ async def test_query_unauthorized_for_other_agent(client, agent, db_pool):
 
     r = await client.post(
         f"/v1/projects/{p['project_id']}/query",
-        json={"semantic_query": "x", "limit": 5},
+        json={"semantic_query": "the query", "limit": 5},
         headers={"Authorization": f"Bearer {plaintext2}"},
     )
     assert r.status_code == 404

@@ -50,7 +50,12 @@ async def acquire() -> AsyncIterator[asyncpg.Connection]:
 
 
 async def _init_connection(conn: asyncpg.Connection) -> None:
-    """Set up codecs for jsonb and the pgvector extension."""
+    """Set up codecs for jsonb (and any future custom types).
+
+    pgvector values are passed in/out as strings (``'[0.1,0.2,...]'``) with a
+    ``::vector`` cast in the SQL — no codec needed. This avoids fighting the
+    asyncpg type-codec machinery when extensions aren't loaded yet.
+    """
 
     await conn.set_type_codec(
         "jsonb",
@@ -59,39 +64,6 @@ async def _init_connection(conn: asyncpg.Connection) -> None:
         schema="pg_catalog",
         format="text",
     )
-
-    # pgvector: register the vector type so we can pass python lists in/out.
-    try:
-        await conn.execute("SELECT 1")  # cheap probe to confirm conn alive
-        await _register_vector(conn)
-    except Exception:
-        # If pgvector isn't installed, vector cols simply use text encoding;
-        # the migrations require pgvector so this should not happen in prod.
-        pass
-
-
-async def _register_vector(conn: asyncpg.Connection) -> None:
-    """Encode vectors as pgvector strings, decode them back to python lists."""
-
-    def _encode(v: list[float]) -> str:
-        # pgvector accepts a literal like '[0.1,0.2,...]'
-        return "[" + ",".join(f"{x:.7f}" for x in v) + "]"
-
-    def _decode(s: str) -> list[float]:
-        # incoming form: '[0.1,0.2,...]'
-        return [float(x) for x in s[1:-1].split(",")] if s and s != "[]" else []
-
-    try:
-        await conn.set_type_codec(
-            "vector",
-            encoder=_encode,
-            decoder=_decode,
-            schema="public",
-            format="text",
-        )
-    except asyncpg.exceptions.UndefinedObjectError:
-        # pgvector not present yet (first migration); ignore.
-        pass
 
 
 async def fetch_one(query: str, *args: Any) -> asyncpg.Record | None:

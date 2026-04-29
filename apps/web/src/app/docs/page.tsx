@@ -1,12 +1,14 @@
+import Link from "next/link";
+
 import { CodeBlock } from "@/components/CodeBlock";
 import { PrimitivesTable } from "@/components/PrimitivesTable";
 
 export default function DocsPage() {
   return (
     <main className="mx-auto max-w-5xl px-6 py-16">
-      <a href="/" className="text-sm text-[#8a8e93]">
+      <Link href="/" className="text-sm text-[#8a8e93]">
         ← back to home
-      </a>
+      </Link>
       <h1 className="mt-4 text-3xl font-semibold tracking-tight">Docs</h1>
       <p className="mt-2 text-[#a9adb1]">
         Two transports — MCP (for Claude/Cursor connectors) and REST (for
@@ -16,7 +18,7 @@ export default function DocsPage() {
       <h2 className="mt-10 text-xl font-semibold">Auth</h2>
       <p className="mt-2 text-[#a9adb1]">
         Mint an API key on the{" "}
-        <a href="/app">dashboard</a>. The key works as both a Bearer token and
+        <Link href="/app">dashboard</Link>. The key works as both a Bearer token and
         a path segment (Claude.ai connectors don&apos;t support custom headers,
         so we put it in the URL).
       </p>

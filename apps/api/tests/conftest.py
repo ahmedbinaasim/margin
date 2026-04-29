@@ -121,65 +121,50 @@ async def client(db_pool) -> AsyncIterator[AsyncClient]:
 # --- Mocks for external HTTP services (Voyage, Groq) ---
 
 
-@pytest.fixture(autouse=True)
-def mock_externals(request):
-    """Mock Voyage embeddings and Groq calls so unit/integration tests don't touch the net.
+def _fake_embed_text(text: str, dim: int = 1024) -> list[float]:
+    """Deterministic 1024-d vector seeded by sha256(text). Test-only."""
+    import hashlib
 
-    Tests that explicitly want live external calls can opt out with ``@pytest.mark.live``.
-    Tests that want to use the local sentence-transformers fallback can opt in with
-    ``@pytest.mark.local_embed``.
+    h = hashlib.sha256(text.encode()).digest()
+    # Stretch the 32-byte hash into `dim` floats in (-1, 1).
+    out: list[float] = []
+    seed = list(h)
+    for i in range(dim):
+        b = seed[i % 32] ^ (i & 0xFF)
+        # Map 0-255 to -1..1
+        out.append((b - 128) / 128.0)
+    return out
+
+
+@pytest.fixture(autouse=True)
+def mock_externals(request, monkeypatch):
+    """Stub external SDKs so tests are hermetic.
+
+    voyageai uses aiohttp under the hood (not httpx), so respx wouldn't intercept
+    it cleanly. Instead, we monkeypatch ``_embed_voyage`` to return deterministic
+    vectors. The truncate + L2-normalize logic in ``embed()`` still runs, so we
+    exercise the real production path everywhere except the network boundary.
+
+    Tests that explicitly want live external calls can opt out with
+    ``@pytest.mark.live``.
     """
 
     if "live" in request.keywords:
         yield
         return
 
-    with respx.mock(assert_all_called=False) as m:
-        # Voyage embed: return a deterministic 1024-dim vector keyed off text length.
-        def _voyage_response(req):
-            import json
+    from margin_api import embeddings as em
 
-            body = json.loads(req.content)
-            texts = body.get("texts") or body.get("input") or []
-            if isinstance(texts, str):
-                texts = [texts]
-            data = []
-            for i, t in enumerate(texts):
-                # Deterministic-ish: first dim == length, then ramp.
-                vec = [float(len(t)) % 7.0, float(i) % 5.0] + [0.01 * (k + 1) for k in range(1022)]
-                data.append(vec)
-            return Response(
-                200,
-                json={
-                    "object": "list",
-                    "data": [{"embedding": v, "index": i} for i, v in enumerate(data)],
-                    "model": "voyage-3.5-lite",
-                    "usage": {"total_tokens": sum(len(t) for t in texts)},
-                    # voyageai SDK expects this shape — see voyageai source
-                    "embeddings": data,
-                },
-            )
+    async def _stub_voyage(texts, input_type):
+        from margin_api.config import get_settings
 
-        m.post("https://api.voyageai.com/v1/embeddings").mock(side_effect=_voyage_response)
+        s = get_settings()
+        return [
+            em._truncate_and_renormalize(_fake_embed_text(t), s.embed_dim) for t in texts
+        ]
 
-        # Groq is gated by api_key in our llm.py; it shouldn't be called when the
-        # key is empty, but mock to be safe.
-        m.post("https://api.groq.com/openai/v1/chat/completions").mock(
-            return_value=Response(
-                200,
-                json={
-                    "id": "fake",
-                    "choices": [
-                        {
-                            "index": 0,
-                            "message": {
-                                "role": "assistant",
-                                "content": "## Overview\n\nA short test intro.",
-                            },
-                            "finish_reason": "stop",
-                        }
-                    ],
-                },
-            )
-        )
-        yield
+    monkeypatch.setattr(em, "_embed_voyage", _stub_voyage)
+
+    # Groq is gated on api_key being set; we leave it empty in tests, so it's
+    # never invoked. No mock needed.
+    yield

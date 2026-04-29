@@ -63,8 +63,13 @@ def _get_voyage_client():
 def _ensure_local_model():
     global _local_model
     if _local_model is None:
-        from sentence_transformers import SentenceTransformer
-
+        try:
+            from sentence_transformers import SentenceTransformer
+        except ImportError as e:
+            raise RuntimeError(
+                "Local embedding fallback requires `sentence-transformers`. "
+                "Install with: uv sync --extra fallback"
+            ) from e
         _local_model = SentenceTransformer("BAAI/bge-small-en-v1.5")
     return _local_model
 

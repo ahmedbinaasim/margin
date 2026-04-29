@@ -44,10 +44,10 @@ async def test_publish_groups_findings_by_confidence(client, agent):
 async def test_publish_json_format(client, agent):
     _, _, key = agent
     h = {"Authorization": f"Bearer {key}"}
-    p = (await client.post("/v1/projects", json={"topic": "t", "depth": "quick"}, headers=h)).json()
+    p = (await client.post("/v1/projects", json={"topic": "test topic", "depth": "quick"}, headers=h)).json()
     await client.post(
         f"/v1/projects/{p['project_id']}/findings",
-        json={"claim": "X", "evidence": "ev", "confidence": 0.9},
+        json={"claim": "claim X", "evidence": "evidence", "confidence": 0.9},
         headers=h,
     )
     r = await client.post(
@@ -61,5 +61,5 @@ async def test_publish_json_format(client, agent):
     import json
 
     obj = json.loads(pub.json()["body"])
-    assert obj["topic"] == "t"
-    assert any(f["claim"] == "X" for f in obj["findings"])
+    assert obj["topic"] == "test topic"
+    assert any(f["claim"] == "claim X" for f in obj["findings"])

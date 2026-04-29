@@ -7,7 +7,7 @@ import pytest
 async def test_request_review_moves_project_to_review_requested(client, agent):
     _, _, key = agent
     h = {"Authorization": f"Bearer {key}"}
-    p = (await client.post("/v1/projects", json={"topic": "t", "depth": "quick"}, headers=h)).json()
+    p = (await client.post("/v1/projects", json={"topic": "test topic", "depth": "quick"}, headers=h)).json()
     r = await client.post(
         f"/v1/projects/{p['project_id']}/reviews",
         json={"reason": "low confidence on X"},

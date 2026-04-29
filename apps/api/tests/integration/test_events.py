@@ -10,7 +10,7 @@ import pytest
 async def test_emit_writes_row_and_recent_lists_it(client, agent):
     _, agent_id, key = agent
     h = {"Authorization": f"Bearer {key}"}
-    p = (await client.post("/v1/projects", json={"topic": "t", "depth": "quick"}, headers=h)).json()
+    p = (await client.post("/v1/projects", json={"topic": "test topic", "depth": "quick"}, headers=h)).json()
 
     r = await client.get(f"/v1/events/recent?agent_key={key}", headers=h)
     assert r.status_code == 200

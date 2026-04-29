@@ -10,11 +10,11 @@ import respx
 async def test_cite_inserts_row_on_fetch_success(respx_mock, client, agent):
     _, _, key = agent
     h = {"Authorization": f"Bearer {key}"}
-    p = (await client.post("/v1/projects", json={"topic": "t", "depth": "quick"}, headers=h)).json()
+    p = (await client.post("/v1/projects", json={"topic": "test topic", "depth": "quick"}, headers=h)).json()
     f = (
         await client.post(
             f"/v1/projects/{p['project_id']}/findings",
-            json={"claim": "C", "evidence": "ev", "confidence": 0.8},
+            json={"claim": "claim text", "evidence": "evidence", "confidence": 0.8},
             headers=h,
         )
     ).json()
@@ -43,11 +43,11 @@ async def test_cite_inserts_row_on_fetch_success(respx_mock, client, agent):
 async def test_cite_records_row_even_when_fetch_fails(respx_mock, client, agent):
     _, _, key = agent
     h = {"Authorization": f"Bearer {key}"}
-    p = (await client.post("/v1/projects", json={"topic": "t", "depth": "quick"}, headers=h)).json()
+    p = (await client.post("/v1/projects", json={"topic": "test topic", "depth": "quick"}, headers=h)).json()
     f = (
         await client.post(
             f"/v1/projects/{p['project_id']}/findings",
-            json={"claim": "C", "evidence": "ev", "confidence": 0.8},
+            json={"claim": "claim text", "evidence": "evidence", "confidence": 0.8},
             headers=h,
         )
     ).json()
@@ -71,11 +71,11 @@ async def test_cite_records_row_even_when_fetch_fails(respx_mock, client, agent)
 async def test_cite_idempotent_on_finding_and_pagehash(respx_mock, client, agent):
     _, _, key = agent
     h = {"Authorization": f"Bearer {key}"}
-    p = (await client.post("/v1/projects", json={"topic": "t", "depth": "quick"}, headers=h)).json()
+    p = (await client.post("/v1/projects", json={"topic": "test topic", "depth": "quick"}, headers=h)).json()
     f = (
         await client.post(
             f"/v1/projects/{p['project_id']}/findings",
-            json={"claim": "C", "evidence": "ev", "confidence": 0.8},
+            json={"claim": "claim text", "evidence": "evidence", "confidence": 0.8},
             headers=h,
         )
     ).json()

@@ -86,7 +86,11 @@ async def test_embed_local_fallback(monkeypatch):
     """Force the Voyage path to fail; ensure local bge-small fallback runs.
 
     Marked slow — loads ~80MB of model weights.
+
+    Skipped automatically if the `fallback` extra isn't installed
+    (sentence-transformers is optional; install with `uv sync --extra fallback`).
     """
+    pytest.importorskip("sentence_transformers")
     from margin_api import embeddings as em
 
     async def _boom(*a, **kw):

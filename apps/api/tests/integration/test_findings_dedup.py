@@ -7,7 +7,7 @@ import pytest
 async def test_dedup_returns_same_finding_id(client, agent):
     _, _, key = agent
     h = {"Authorization": f"Bearer {key}"}
-    p = (await client.post("/v1/projects", json={"topic": "t", "depth": "quick"}, headers=h)).json()
+    p = (await client.post("/v1/projects", json={"topic": "test topic", "depth": "quick"}, headers=h)).json()
     body = {
         "claim": "X is true",
         "evidence": "evidence",
@@ -30,9 +30,9 @@ async def test_dedup_returns_same_finding_id(client, agent):
 async def test_dedup_is_per_project(client, agent):
     _, _, key = agent
     h = {"Authorization": f"Bearer {key}"}
-    p1 = (await client.post("/v1/projects", json={"topic": "p1", "depth": "quick"}, headers=h)).json()
-    p2 = (await client.post("/v1/projects", json={"topic": "p2", "depth": "quick"}, headers=h)).json()
-    body = {"claim": "Z", "evidence": "ev", "confidence": 0.5}
+    p1 = (await client.post("/v1/projects", json={"topic": "project one", "depth": "quick"}, headers=h)).json()
+    p2 = (await client.post("/v1/projects", json={"topic": "project two", "depth": "quick"}, headers=h)).json()
+    body = {"claim": "claim Z", "evidence": "evidence", "confidence": 0.5}
     f1 = (await client.post(f"/v1/projects/{p1['project_id']}/findings", json=body, headers=h)).json()
     f2 = (await client.post(f"/v1/projects/{p2['project_id']}/findings", json=body, headers=h)).json()
     assert f1["finding_id"] != f2["finding_id"]
@@ -44,20 +44,20 @@ async def test_dedup_is_per_project(client, agent):
 async def test_contradicts_must_be_in_same_project(client, agent):
     _, _, key = agent
     h = {"Authorization": f"Bearer {key}"}
-    p1 = (await client.post("/v1/projects", json={"topic": "p1", "depth": "quick"}, headers=h)).json()
-    p2 = (await client.post("/v1/projects", json={"topic": "p2", "depth": "quick"}, headers=h)).json()
+    p1 = (await client.post("/v1/projects", json={"topic": "project one", "depth": "quick"}, headers=h)).json()
+    p2 = (await client.post("/v1/projects", json={"topic": "project two", "depth": "quick"}, headers=h)).json()
     f1 = (
         await client.post(
             f"/v1/projects/{p1['project_id']}/findings",
-            json={"claim": "A", "evidence": "ev1", "confidence": 0.8},
+            json={"claim": "claim A", "evidence": "evidence one", "confidence": 0.8},
             headers=h,
         )
     ).json()
     r = await client.post(
         f"/v1/projects/{p2['project_id']}/findings",
         json={
-            "claim": "B",
-            "evidence": "ev2",
+            "claim": "claim B",
+            "evidence": "evidence two",
             "confidence": 0.7,
             "contradicts": f1["finding_id"],
         },

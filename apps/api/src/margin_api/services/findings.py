@@ -15,12 +15,14 @@ from . import projects as projects_svc
 
 
 def _content_hash(claim: str, evidence: str) -> str:
-    norm = (claim.strip() + "\x00" + evidence.strip()).lower()
+    norm = " ".join(
+        (claim.strip() + "\x00" + evidence.strip()).lower().split()
+    )
     return hashlib.sha256(norm.encode("utf-8")).hexdigest()
 
 
 def _vec_to_pgvector(v: list[float]) -> str:
-    """Format a list of floats as a pgvector literal."""
+    """Format a list of floats as a pgvector literal (used by query path)."""
     return "[" + ",".join(f"{x:.7f}" for x in v) + "]"
 
 
@@ -68,6 +70,7 @@ async def add_finding(
 
     # Embed once (lifts up out of the connection scope so we don't hold it).
     vec = (await embeddings.embed([f"{claim} {evidence}"], input_type="document"))[0]
+    vec_lit = _vec_to_pgvector(vec)
 
     async with acquire() as conn:
         async with conn.transaction():
@@ -87,7 +90,7 @@ async def add_finding(
                 source,
                 confidence,
                 contradicts,
-                _vec_to_pgvector(vec),
+                vec_lit,
                 chash,
             )
             if row is None:

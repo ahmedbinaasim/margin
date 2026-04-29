@@ -17,9 +17,16 @@ RUN apt-get update \
 WORKDIR /app
 
 # Install dependencies first to maximize Docker layer cache.
+# By default we DO NOT install the `fallback` extra — torch + sentence-transformers
+# adds ~2GB. Build with `--build-arg WITH_FALLBACK=1` to include the offline path.
+ARG WITH_FALLBACK=0
 COPY pyproject.toml ./
 RUN uv venv /opt/venv && \
-    UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --no-dev --no-install-project
+    if [ "$WITH_FALLBACK" = "1" ]; then \
+      UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --no-dev --no-install-project --extra fallback; \
+    else \
+      UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --no-dev --no-install-project; \
+    fi
 
 ENV PATH="/opt/venv/bin:$PATH"
 
@@ -27,9 +34,10 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY src ./src
 RUN UV_PROJECT_ENVIRONMENT=/opt/venv uv pip install --no-deps .
 
-# Pre-download the local fallback model so the first cold request doesn't pay the cost.
-# Comment out if you'd rather lazy-load (saves ~80MB image size).
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-small-en-v1.5')" || true
+# Pre-download the local fallback model only when WITH_FALLBACK was used.
+RUN if [ "$WITH_FALLBACK" = "1" ]; then \
+      python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-small-en-v1.5')" || true; \
+    fi
 
 EXPOSE 8080
 

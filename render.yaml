@@ -16,7 +16,7 @@ services:
       - key: JWT_SECRET
         sync: false
       - key: PUBLIC_BASE_URL
-        value: https://margin.dev
+        value: https://margin-peach.vercel.app
       - key: API_BASE_URL
         value: https://api.margin.dev
       - key: VOYAGE_API_KEY
@@ -40,16 +40,18 @@ services:
       - key: R2_ENDPOINT
         sync: false
       - key: SMTP_HOST
-        value: smtp.resend.com
+        value: smtp.gmail.com
       - key: SMTP_PORT
-        value: "465"
+        value: "587"
       - key: SMTP_USERNAME
-        value: resend
+        value: ahmedbinaasim@gmail.com
       - key: SMTP_PASSWORD
         sync: false
       - key: SMTP_FROM
-        value: Margin <noreply@margin.dev>
+        value: Margin <ahmedbinaasim@gmail.com>
       - key: SMTP_USE_TLS
+        value: "false"
+      - key: SMTP_START_TLS
         value: "true"
       - key: PORT
         value: "8080"

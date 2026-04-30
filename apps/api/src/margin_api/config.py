@@ -52,11 +52,16 @@ class Settings(BaseSettings):
     # Default config uses Resend's SMTP endpoint. Switching providers is just
     # changing these env vars; the code path is provider-agnostic.
     smtp_host: str | None = None
-    smtp_port: int = 465
+    smtp_port: int = 587
     smtp_username: str = "resend"
     smtp_password: str | None = None
     smtp_from: str = "Margin <noreply@margin.dev>"
-    smtp_use_tls: bool = True
+    # Set ONE of these. STARTTLS (port 587) is more reliable on restrictive
+    # outbound networks like Render free tier. Implicit TLS (port 465) is
+    # faster but blocked on some hosts.
+    smtp_use_tls: bool = False
+    smtp_start_tls: bool = True
+    smtp_timeout: float = 15.0
 
     # Legacy — kept so existing deploys don't break on env load. No longer read.
     resend_api_key: str | None = None

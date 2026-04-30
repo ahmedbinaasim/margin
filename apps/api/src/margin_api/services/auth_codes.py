@@ -39,14 +39,20 @@ async def _send_magic_link(email: str, code: str) -> bool:
         msg.set_content(magic_link_text(code, CODE_TTL_MIN))
         msg.add_alternative(magic_link_html(code, CODE_TTL_MIN), subtype="html")
 
-        await aiosmtplib.send(
-            msg,
-            hostname=settings.smtp_host,
-            port=settings.smtp_port,
-            username=settings.smtp_username,
-            password=settings.smtp_password,
-            use_tls=settings.smtp_use_tls,
-        )
+        # aiosmtplib forbids passing both use_tls and start_tls=True. Pick one.
+        kwargs: dict[str, object] = {
+            "hostname": settings.smtp_host,
+            "port": settings.smtp_port,
+            "username": settings.smtp_username,
+            "password": settings.smtp_password,
+            "timeout": settings.smtp_timeout,
+        }
+        if settings.smtp_start_tls:
+            kwargs["start_tls"] = True
+        elif settings.smtp_use_tls:
+            kwargs["use_tls"] = True
+
+        await aiosmtplib.send(msg, **kwargs)
         return True
     except Exception as e:
         _log.warning("smtp_send_failed email=%s err=%r", email, e)

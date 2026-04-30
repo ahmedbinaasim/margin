@@ -84,15 +84,15 @@ async def main() -> int:
 
         sample_findings = [
             (
-                "Koyeb's free instance scales to zero after 1 hour idle, not 15 minutes.",
-                "Koyeb docs: 'Free instances are paused after 1 hour without traffic.'",
-                "https://www.koyeb.com/docs/pricing",
+                "Render free web services sleep after 15 minutes of inactivity but offer 750 instance-hours/mo.",
+                "Render docs: 'Free web services spin down after 15 minutes of no traffic.'",
+                "https://render.com/docs/free",
                 0.95,
             ),
             (
-                "Render free web services sleep after 15 minutes of inactivity.",
-                "Render docs: 'Free web services spin down after 15 minutes of no traffic.'",
-                "https://render.com/docs/free",
+                "Hugging Face Spaces (Docker SDK, CPU Basic) is a free fallback with no sleep policy.",
+                "Hugging Face docs: 'CPU Basic Spaces run continuously and are not paused.'",
+                "https://huggingface.co/docs/hub/spaces-overview",
                 0.9,
             ),
             (

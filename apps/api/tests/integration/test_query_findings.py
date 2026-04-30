@@ -10,7 +10,7 @@ async def test_query_returns_results_under_filter(client, agent):
     p = (await client.post("/v1/projects", json={"topic": "test topic", "depth": "quick"}, headers=h)).json()
 
     facts = [
-        ("Koyeb cold-starts in seconds", 0.9),
+        ("Fly.io machines cold-start in seconds", 0.9),
         ("Render free sleeps after 15 minutes", 0.85),
         ("Cats purr at 25 Hz", 0.6),
     ]

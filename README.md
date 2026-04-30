@@ -63,7 +63,17 @@ The lane is open.
 
 ---
 
-## Self-host
+## Self-host on Render (free tier)
+
+1. Fork this repo.
+2. Sign up at https://render.com (no credit card required).
+3. New → Blueprint → connect this repo. Render reads `render.yaml` automatically.
+4. When prompted, paste secret values for: `DATABASE_URL` (Neon), `JWT_SECRET` (generate with `openssl rand -hex 32`), `VOYAGE_API_KEY`, `GROQ_API_KEY`, `R2_*`, `RESEND_API_KEY`.
+5. After first deploy, visit `https://<your-service>.onrender.com/healthz` to confirm.
+6. Optional: add a custom domain (`api.<yourdomain>`) under Render → Settings → Custom Domains.
+7. The included GitHub Actions workflow at `.github/workflows/keepalive.yml` will ping the service every 10 minutes to prevent sleep. Enable Actions on your fork.
+
+### Local dev
 
 ```bash
 # 1. Postgres + pgvector (Neon free tier works; for local dev:)
@@ -99,7 +109,7 @@ docker run -p 8080:8080 \
 
 | Slot | Choice |
 |---|---|
-| Backend compute | Koyeb free instance |
+| Backend compute | Render free web service (with GitHub Actions keep-alive ping) |
 | Frontend | Cloudflare Pages (static export) |
 | Postgres + vectors | Neon free (always-on) + pgvector |
 | Blob storage | Cloudflare R2 (zero egress) |
@@ -136,7 +146,7 @@ margin/
 ├── apps/api/             # FastAPI + FastMCP (Python 3.12, uv)
 ├── apps/web/             # Next.js 15 App Router, static export
 ├── packages/sdk-py/      # Python SDK
-├── infra/                # migrations, seed, koyeb.yaml
+├── infra/                # migrations, seed
 ├── docs/                 # landing copy, YC app draft, demo script
 ├── SPEC.md               # full design doc
 └── .github/workflows/    # CI

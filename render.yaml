@@ -1,0 +1,47 @@
+services:
+  - type: web
+    name: margin-api
+    runtime: docker
+    plan: free
+    region: oregon
+    rootDir: apps/api
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    autoDeploy: true
+    branch: main
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: PUBLIC_BASE_URL
+        value: https://margin.dev
+      - key: API_BASE_URL
+        value: https://api.margin.dev
+      - key: VOYAGE_API_KEY
+        sync: false
+      - key: VOYAGE_EMBED_MODEL
+        value: voyage-3.5-lite
+      - key: EMBED_DIM
+        value: "768"
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: llama-3.3-70b-versatile
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET
+        value: margin-pages
+      - key: R2_ENDPOINT
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: PORT
+        value: "8080"
+      - key: PYTHONUNBUFFERED
+        value: "1"

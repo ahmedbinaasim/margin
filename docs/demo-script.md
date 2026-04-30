@@ -28,7 +28,7 @@ From SPEC §10. Recording is the user's job — the scripts here are the voice-o
 > `list_projects`, then `query_findings` with `cold start times`. It pulls
 > the relevant findings back from yesterday — semantically.
 >
-> [1:10] It finds two sources that disagree on Koyeb's cold-start time. It
+> [1:10] It finds two sources that disagree on Render's cold-start time. It
 > calls `branch_project` to fork an investigation, resolves the
 > contradiction, then `request_human_review`.
 >

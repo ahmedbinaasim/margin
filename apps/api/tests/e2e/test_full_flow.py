@@ -28,11 +28,11 @@ async def test_full_flow_rest(respx_mock, client, agent):
 
     # 2. five findings, one duplicate
     facts = [
-        ("Koyeb scales to zero after 1 hour idle", "Koyeb docs say 1 hour", 0.95),
+        ("Hugging Face Spaces never sleeps on CPU Basic", "HF docs say no sleep", 0.95),
         ("Render free sleeps after 15 minutes", "Render docs", 0.9),
         ("Neon free is never paused on inactivity", "Neon pricing page", 0.85),
         ("Cloudflare R2 has zero egress", "R2 pricing page", 0.92),
-        ("Koyeb scales to zero after 1 hour idle", "Koyeb docs say 1 hour", 0.95),  # dup
+        ("Hugging Face Spaces never sleeps on CPU Basic", "HF docs say no sleep", 0.95),  # dup
     ]
     for claim, ev, conf in facts:
         await client.post(

@@ -8,7 +8,7 @@
 
 **What we ship in 2 days.** A live `https://margin.<chosen-tld>` landing page with copyable MCP install command, a Next.js dashboard at `/app` rendering an agent activity timeline, and a Python FastAPI + FastMCP service exposing eight tools and a REST mirror, backed by Neon Postgres + pgvector and Cloudflare R2. End-to-end demo: Claude Desktop user adds Margin via a single URL, runs a literature review, closes the chat, opens a new chat the next day, queries findings semantically, branches to investigate a contradiction, requests human review, publishes a markdown report.
 
-**Cost.** $0 recurring, optionally $0.99 for a `.xyz` domain. Stack: Koyeb (FastAPI), Cloudflare Pages (Next.js), Neon (Postgres + pgvector), Cloudflare R2 (raw HTML), GitHub Actions (CI), Voyage 3.5-lite @ 768d (embeddings, with local `bge-small-en-v1.5` fallback), Groq llama-3.3-70b (LLM).
+**Cost.** $0 recurring, optionally $0.99 for a `.xyz` domain. Stack: Render (FastAPI), Cloudflare Pages (Next.js), Neon (Postgres + pgvector), Cloudflare R2 (raw HTML), GitHub Actions (CI), Voyage 3.5-lite @ 768d (embeddings, with local `bge-small-en-v1.5` fallback), Groq llama-3.3-70b (LLM).
 
 **Deliverable.** Live URL, public GitHub repo, a 60-second founders' video for the YC form, and a 90-second screen recording of Claude using Margin end-to-end.
 
@@ -20,7 +20,7 @@ A solo developer named Sara is using Claude Desktop. She visits `margin.dev`, co
 
 Sara types: _"Research the state of free-tier MCP hosting in April 2026 and remember everything you learn."_ Claude calls `start_research(topic="free-tier MCP hosting", depth="thorough", deadline=null)` and gets `project_id=p_K1aZ9...`. It browses with its own web tools, then calls `add_finding(project_id, claim="Render free web tier sleeps after 15 min", evidence="<quote>", source="https://render.com/...", confidence=0.9)` ten to fifteen times. For each, it follows up with `cite(finding_id, url, excerpt)`. Margin fetches each URL server-side via trafilatura, hashes the cleaned markdown, stores raw HTML in R2, and embeds the claim+evidence with Voyage 3.5-lite (truncated to 768 dimensions, L2-renormalized) into pgvector.
 
-Sara closes the chat and goes to bed. The next morning she opens a fresh Claude conversation and says _"continue the MCP hosting research and look for contradictions."_ Claude calls `list_projects(agent_id)`, gets `p_K1aZ9` back with a summary, then `query_findings(project_id, semantic_query="cold start times")` and gets the prior findings ranked by cosine similarity. It identifies a contradiction (one source says Koyeb cold-starts in seconds, another in milliseconds), calls `branch_project(project_id, reason="contradicting cold-start claims")` to fork a sub-investigation, and resolves it. It then calls `request_human_review(project_id, reason="confidence on hosted-MCP-on-Render claim < 0.7")`. Sara gets a notification on the `/app` dashboard, opens it, sees the agent's reasoning trace and the live timeline, approves. Claude calls `publish_report(project_id, format="markdown")` and returns a stable URL like `https://margin.dev/r/p_K1aZ9` that Sara shares on Twitter.
+Sara closes the chat and goes to bed. The next morning she opens a fresh Claude conversation and says _"continue the MCP hosting research and look for contradictions."_ Claude calls `list_projects(agent_id)`, gets `p_K1aZ9` back with a summary, then `query_findings(project_id, semantic_query="cold start times")` and gets the prior findings ranked by cosine similarity. It identifies a contradiction (one source says Render cold-starts in 30 seconds, another in 5), calls `branch_project(project_id, reason="contradicting cold-start claims")` to fork a sub-investigation, and resolves it. It then calls `request_human_review(project_id, reason="confidence on hosted-MCP-on-Render claim < 0.7")`. Sara gets a notification on the `/app` dashboard, opens it, sees the agent's reasoning trace and the live timeline, approves. Claude calls `publish_report(project_id, format="markdown")` and returns a stable URL like `https://margin.dev/r/p_K1aZ9` that Sara shares on Twitter.
 
 Throughout, the `/app` dashboard shows a live SSE stream: _"ag_sara → add_finding → p_K1aZ9 → 'Render free web tier sleeps...' (0.9 conf)"_ in real time.
 
@@ -30,10 +30,10 @@ Throughout, the `/app` dashboard shows a live SSE stream: _"ag_sara → add_find
 
 **One Git repository** (`github.com/<you>/margin`, public, MIT) containing:
 
-- `apps/api/` — Python 3.12 FastAPI + FastMCP service, deployed to Koyeb, reachable at `https://margin-api-<id>.koyeb.app`. CNAMEd to `api.margin.<tld>`.
+- `apps/api/` — Python 3.12 FastAPI + FastMCP service, deployed to Render, reachable at `https://margin-api-<id>.onrender.com`. CNAMEd to `api.margin.<tld>`.
 - `apps/web/` — Next.js 15 (App Router) static-export marketing site + dashboard, deployed to Cloudflare Pages, reachable at `https://margin.<tld>`.
 - `packages/sdk-py/` — a 200-line Python client (optional polish).
-- `infra/` — `koyeb.yaml`, GitHub Actions workflow, SQL migrations.
+- `infra/` — GitHub Actions workflow, SQL migrations. (Render reads `render.yaml` at the repo root.)
 - `README.md` — landing-page-style with copyable curl + Claude install snippet.
 - `SPEC.md` — this document.
 
@@ -292,8 +292,8 @@ margin/
 ├── SPEC.md                    # this document
 ├── LICENSE                    # MIT
 ├── .github/workflows/ci.yml   # lint + test + deploy
+├── render.yaml                # Render Blueprint (web service, env vars, healthcheck)
 ├── infra/
-│   ├── koyeb.yaml             # Koyeb deployment config
 │   ├── migrations/
 │   │   └── 001_init.sql       # full DDL from §3
 │   └── seed.py                # creates demo owner+agent, 5 findings
@@ -401,14 +401,14 @@ Each block lists the work, files touched, and binary acceptance criteria. Treat 
 
 ### Day 2, morning (4 h) — frontend, deploy, custom domain
 
-**Goals.** Backend runs on Koyeb at a public HTTPS URL. Next.js landing + dashboard are live on Cloudflare Pages. Domain is wired. Claude Desktop can install the connector and call all eight tools.
+**Goals.** Backend runs on Render at a public HTTPS URL. Next.js landing + dashboard are live on Cloudflare Pages. Domain is wired. Claude Desktop can install the connector and call all eight tools.
 
 **Tasks.**
 
-1. **Backend deploy.** Push to GitHub. Create Koyeb app, point at the repo, set env vars (§8), build with `Dockerfile`, expose port 8080. Verify `https://margin-api-<id>.koyeb.app/healthz` returns 200.
-2. **Domain.** Buy `margin.<tld>` (recommend `.dev` for credibility, ~$11/yr at Cloudflare Registrar; fall back to `.xyz` at $0.99 if budget is hard $0). Add DNS at Cloudflare:
+1. **Backend deploy (Render).** Push to GitHub. On Render: New → Blueprint → connect repo. Render reads `render.yaml` and creates the `margin-api` web service. Paste secrets when prompted (DATABASE_URL, JWT_SECRET, VOYAGE_API_KEY, GROQ_API_KEY, R2_*, RESEND_API_KEY). Wait for first build (~3 min). Verify `https://margin-api-<id>.onrender.com/healthz` returns 200.
+2. **Custom domain.** In Render → Settings → Custom Domains, add `api.margin.<tld>`. Render shows a CNAME target. At Cloudflare DNS, add: `api.margin.<tld>` → CNAME → `margin-api-<id>.onrender.com`, proxy status DNS-only (gray cloud). Wait for Render to issue the cert (~1 min). Verify `https://api.margin.<tld>/healthz` returns 200. Enable the GitHub Actions keep-alive workflow.
    - `margin.<tld>` → CNAME to Cloudflare Pages.
-   - `api.margin.<tld>` → CNAME to Koyeb app.
+   - `api.margin.<tld>` → CNAME to Render service.
 3. **Frontend.** Scaffold `apps/web` with `create-next-app`. Implement `Hero`, `McpInstall` (renders `https://api.margin.<tld>/mcp/<key>` once the user has a key), `CodeBlock`, `ActivityTimeline` (uses `EventSource` against `/v1/events?since=...`).
 4. Build the dashboard at `/app`: passwordless email magic link (FastAPI sends a 6-digit code via Resend free tier or just shows it in the response for demo), creates owner+agent, displays the connector URL with one-click copy. Show last 50 events in the timeline.
 5. Render the report viewer at `/r/[slug]` by fetching `GET /v1/reports/<slug>` and rendering markdown via `react-markdown`.
@@ -446,22 +446,22 @@ Each block lists the work, files touched, and binary acceptance criteria. Treat 
 
 | Slot | Choice | Rationale | Fallback |
 |---|---|---|---|
-| Backend compute | **Koyeb free instance** | Persistent process, no credit card, commercial use allowed, scales to zero only after 1 h idle. Render free sleeps after 15 min and cold-starts in 30+ s, which breaks Claude's MCP handshake. Railway and Fly.io no longer have free tiers. | Fly.io shared-cpu-1x@256MB at ~$2/mo if Koyeb cold starts during the demo. |
+| Backend compute | **Render free web service** | No credit card, 750 hrs/mo (covers 24/7), Docker-native, normal `*.onrender.com` URL. Sleeps after 15 min idle but a GitHub Actions cron pinging /healthz every 10 min keeps it permanently warm. | Hugging Face Spaces (Docker SDK, CPU Basic) if Render's free tier ever changes. |
 | Frontend | **Cloudflare Pages** | Unlimited bandwidth, no commercial-use restriction (Vercel Hobby explicitly bans commercial use, which a YC startup application is), 100k Functions/day, no hard pause cliff. | Vercel Hobby for the development phase only. |
 | Postgres + vectors | **Neon free** | Never paused on inactivity (unlike Supabase's 7-day pause), pgvector built-in, 0.5 GB per project, commercial OK, no credit card. The combination of "always-reachable" and "pgvector in the same DB" eliminates an entire service. | Supabase free with a GitHub Action keep-alive ping every 6 days. |
 | Blob storage | **Cloudflare R2** | 10 GB free, zero egress forever, S3-compatible boto3. A YC partner clicking the demo report 50 times is free; on Backblaze or S3 it isn't. | Backblaze B2 with Cloudflare in front. |
 | Auth | **Roll-your-own bcrypt API keys** in `agents` table | Clerk's M2M tokens started billing March 16 2026; agent users don't need OAuth flows. ~30 lines of code, zero recurring cost. | None needed. |
-| Embeddings | **Voyage 3.5-lite @ 1024d, truncated to 768d + L2-renormalized** | Best-in-class retrieval quality (top of MTEB English), 200M free tokens (effectively bottomless for our volume of ~100-200 embeddings/day), no credit card required, independent provider — clean story for a product storing third-party research data. | `sentence-transformers/bge-small-en-v1.5` running locally in the Koyeb container (384d, no API call, never throttles). |
+| Embeddings | **Voyage 3.5-lite @ 1024d, truncated to 768d + L2-renormalized** | Best-in-class retrieval quality (top of MTEB English), 200M free tokens (effectively bottomless for our volume of ~100-200 embeddings/day), no credit card required, independent provider — clean story for a product storing third-party research data. | `sentence-transformers/bge-small-en-v1.5` running locally in the Render container (384d, no API call, never throttles). |
 | LLM (light) | **Groq llama-3.3-70b-versatile** | 30 RPM, 14.4k RPD, no credit card, ~500 tok/s. Used only for the report TOC at publish time. The fast streaming makes the publish moment feel instant in the demo. | Groq `llama-3.1-8b-instant` for overflow; or skip the TOC entirely and ship the naive markdown grouping. |
 | Web fetch + extraction | **httpx + trafilatura** | Trafilatura beats readability-lxml and newspaper3k in independent benchmarks (F1 0.94+); built-in markdown output; no Playwright required. | Add Playwright only if a target source is JS-rendered. |
-| CI/CD | **GitHub Actions** | Free unlimited minutes for public repos. | Built-in Pages/Koyeb Git deploys for redundancy. |
-| Domain | **`.dev` from Cloudflare Registrar (~$11/yr)** | Auto-HTTPS, recognizable as a developer/AI product, at-cost pricing. The single line item worth a buck for YC credibility. | `.xyz` at $0.99 from Namecheap; or `*.koyeb.app` + `*.pages.dev` for $0. |
+| CI/CD | **GitHub Actions** | Free unlimited minutes for public repos. Also runs the keep-alive cron that pings Render's `/healthz` every 10 min. | Built-in Pages/Render Git deploys for redundancy. |
+| Domain | **`.dev` from Cloudflare Registrar (~$11/yr)** | Auto-HTTPS, recognizable as a developer/AI product, at-cost pricing. The single line item worth a buck for YC credibility. | `.xyz` at $0.99 from Namecheap; or `*.onrender.com` + `*.pages.dev` for $0. |
 
 **Hard avoid list, with reasons:**
 
 - Vercel Hobby — TOS bans commercial use; pauses on quota with no overage.
 - Supabase free — 7-day inactivity pause kills the demo URL.
-- Render free — 15-minute sleep and 30 s+ cold starts break MCP.
+- **Koyeb** — Mistral acquired them February 2026; the previously-documented Free Instance is no longer reliably available.
 - Railway, Fly.io — no real free tier in 2026.
 - Firebase Storage — removed from the Spark plan in February 2026.
 - Freenom domains — effectively defunct.
@@ -507,7 +507,7 @@ NEXT_PUBLIC_API_BASE=https://api.margin.dev
 
 **Secrets handling rules.**
 
-- All secrets stored in Koyeb's secret manager and Cloudflare Pages' environment variables. Never committed.
+- All secrets stored in Render's environment variables (declared as `sync: false` in `render.yaml` and pasted in the dashboard) and Cloudflare Pages' environment variables. Never committed.
 - A `.env.example` is committed; `.env` is in `.gitignore`.
 - API keys minted by us are bcrypt-hashed on insert. Plaintext is shown to the user **once** , then never again.
 - R2 credentials are scoped to the `margin-pages` bucket only.
@@ -524,7 +524,7 @@ NEXT_PUBLIC_API_BASE=https://api.margin.dev
 
 **Provenance pipeline.** When an agent calls `cite()`: fetch with httpx → extract with trafilatura → hash cleaned markdown → upload raw HTML to R2 → write row. On `publish_report`, generate signed R2 URLs for each citation and embed them. The agent gets durable receipts.
 
-**Embedding economics.** 100 findings/day × ~500 tokens = 50k tokens/day, well under Voyage's 200M-token free pool — we'd hit it after roughly 11 years of continuous use at this rate. We dedupe on insert via `content_hash`, so an agent loop can't burn budget. We truncate Voyage's 1024-dim output to 768 dims and **L2-renormalize after truncation** (this step is non-optional — slicing breaks the unit-norm property and pgvector's `<=>` cosine distance assumes normalized vectors for best behavior). HNSW index handles up to ~1M rows comfortably. If Voyage ever errors out, we degrade to local `bge-small-en-v1.5` running in the Koyeb container — slower per call but never throttles, and 384d is fine for our scale (we just pad to 768 with zeros and renormalize so the column dimension stays stable).
+**Embedding economics.** 100 findings/day × ~500 tokens = 50k tokens/day, well under Voyage's 200M-token free pool — we'd hit it after roughly 11 years of continuous use at this rate. We dedupe on insert via `content_hash`, so an agent loop can't burn budget. We truncate Voyage's 1024-dim output to 768 dims and **L2-renormalize after truncation** (this step is non-optional — slicing breaks the unit-norm property and pgvector's `<=>` cosine distance assumes normalized vectors for best behavior). HNSW index handles up to ~1M rows comfortably. If Voyage ever errors out, we degrade to local `bge-small-en-v1.5` running in the Render container — slower per call but never throttles, and 384d is fine for our scale (we just pad to 768 with zeros and renormalize so the column dimension stays stable).
 
 ### Reference implementation: `embeddings.py`
 
@@ -620,7 +620,7 @@ Two consequences worth knowing. First, `add_finding` should call `embed([claim +
 >
 > [0:50] I close the chat. I open a brand-new Claude conversation. I say: continue the MCP research and find contradictions. Claude calls `list_projects`, then `query_findings` with `cold start times`. It pulls the relevant findings back from yesterday — semantically.
 >
-> [1:10] It finds two sources that disagree on Koyeb's cold-start time. It calls `branch_project` to fork an investigation, resolves the contradiction, then `request_human_review`.
+> [1:10] It finds two sources that disagree on Render's cold-start time. It calls `branch_project` to fork an investigation, resolves the contradiction, then `request_human_review`.
 >
 > [1:25] I approve. It calls `publish_report`. Here is the report — markdown, every claim cited, every source archived, a stable public URL.
 >
@@ -735,7 +735,7 @@ MIT licensed.
 > Aaron Epstein's Summer 2026 RFS says agents need "APIs, MCPs, and CLIs" with "thorough documentation" and that "every major category of software that people use today needs to be rebuilt for agents." The agent-infra layer below us is funded — Mem0 raised $24M for memory, Zep similar, Browserbase Series B at $300M, Composio $29M — but **the research workspace category is empty**. NotebookLM and Claude Projects are clients for humans. Memory tools store facts, not artifacts. Skills are procedural, not persistent. The lane is open and MCP adoption (270+ servers in the Docker MCP Catalog as of February 2026) is the distribution channel.
 
 **Progress (for the form's progress field):**
-> Live at https://margin.dev. Built solo in 2 days. Open-source MIT on GitHub. Eight MCP tools and a REST mirror, deployed on Koyeb + Cloudflare + Neon at $0/mo recurring. Demo video shows Claude Desktop using Margin across two separate sessions to research, contradict, branch, review, and publish a report. Real users to be added the week of submission.
+> Live at https://margin.dev. Built solo in 2 days. Open-source MIT on GitHub. Eight MCP tools and a REST mirror, deployed on Render + Cloudflare + Neon at $0/mo recurring. Demo video shows Claude Desktop using Margin across two separate sessions to research, contradict, branch, review, and publish a report. Real users to be added the week of submission.
 
 **How will you make money?**
 > Free for solo developers (one agent, 1k findings, 100MB storage). $20/mo Pro for ten agents and 100k findings; $200/mo Team adds shared projects and SSO. Storage is the natural lock-in — Aaron Epstein's pricing rule of "charge from day one or freemium with clear lock-in" maps directly onto a research workspace where the artifact's value compounds with use.
@@ -755,12 +755,12 @@ MIT licensed.
 
 | Risk | Likelihood | Impact | Mitigation | If it bites: cut |
 |---|---|---|---|---|
-| Koyeb scales to zero between demo retakes | Medium | Demo cold-starts | Send a heartbeat from the dashboard every 30 min during demo day | Move to Fly.io shared-cpu at $2/mo |
+| Render service goes cold during demo | Low (with keep-alive) | First request takes 30+ sec | GitHub Actions cron pings /healthz every 10 min; manual pre-warm 5 min before demo | Trigger workflow_dispatch on the keepalive workflow |
 | Voyage free-tier throttles at the wrong moment | Low | Findings fall back to local bge-small (slower, lower quality) | Local `bge-small-en-v1.5` fallback wired in `embeddings.py` from day 1; it never throttles | Warm the local model at boot if we expect heavy load |
 | Claude.ai connector UI changes between dev and demo | Low | Install path differs | Document both Claude.ai and Claude API Managed Agents paths | Show the REST curl path in the demo instead |
 | pgvector HNSW build slow on Neon free | Low | Slow first query | Index built once at migration time | Switch to ivfflat |
 | trafilatura fails on JS-rendered sources | Medium | Citation has empty markdown | Citation row still inserted with `fetch_status=0`; agent can retry | Skip extraction; store raw HTML only |
-| Domain DNS not propagated in time | Low | Demo on `*.koyeb.app` | Buy domain on day 1 morning | Use platform subdomains |
+| Domain DNS not propagated in time | Low | Demo on `*.onrender.com` | Buy domain on day 1 morning | Use platform subdomains |
 | Magic-link email delivery flaky | Low | Sign-in friction | Print the code in the API response in dev mode | Skip email entirely; show the API key on a "claim a key" public page |
 | MCP spec or Claude connector behavior shifts pre-demo | Low | Reconnect needed | Pin to spec `2025-11-25`; FastMCP 2.x | Demo via MCP Inspector instead of Claude |
 

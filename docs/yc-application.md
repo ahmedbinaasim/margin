@@ -28,7 +28,7 @@ Docker MCP Catalog as of February 2026) is the distribution channel.
 ## Progress
 Live at https://margin.dev (target). Built solo in 2 days. Open-source MIT
 on GitHub at github.com/ahmedbinaasim/margin. Eight MCP tools and a REST
-mirror, deployed on Koyeb + Cloudflare + Neon at $0/mo recurring. Demo
+mirror, deployed on Render + Cloudflare + Neon at $0/mo recurring. Demo
 video shows Claude Desktop using Margin across two separate sessions to
 research, contradict, branch, review, and publish a report. Real users
 will be added in the week of submission.

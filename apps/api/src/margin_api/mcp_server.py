@@ -462,8 +462,14 @@ def get_inner_mcp_app():
     """
     global _inner_mcp_app
     if _inner_mcp_app is None:
+        # NOTE: stateful (default) mode is required for the Claude.ai connector
+        # UI to enumerate tools — it relies on the Mcp-Session-Id header that
+        # the spec issues on `initialize`. Stateless mode strips that header
+        # and Claude.ai silently shows "no tools available" even though
+        # tools/list responds correctly to direct POSTs (Inspector/curl work).
+        # We're single-instance on Render free, so no sticky-session concern.
         _inner_mcp_app = mcp.http_app(
-            transport="streamable-http", stateless_http=True, path="/"
+            transport="streamable-http", stateless_http=False, path="/"
         )
     return _inner_mcp_app
 

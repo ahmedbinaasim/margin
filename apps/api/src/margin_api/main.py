@@ -29,18 +29,26 @@ def _configure_logging() -> None:
     )
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    _configure_logging()
-    await init_pool()
-    try:
-        yield
-    finally:
-        await close_pool()
-
-
 def create_app() -> FastAPI:
     settings = get_settings()
+
+    # Build the FastMCP ASGI app first — its lifespan must run inside FastAPI's
+    # lifespan or the StreamableHTTPSessionManager task group never starts.
+    from .mcp_server import build_mcp_app, get_inner_mcp_app
+
+    mcp_app = build_mcp_app()
+    inner_mcp_app = get_inner_mcp_app()
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        _configure_logging()
+        await init_pool()
+        async with inner_mcp_app.lifespan(inner_mcp_app):
+            try:
+                yield
+            finally:
+                await close_pool()
+
     app = FastAPI(
         title="Margin",
         description="Agent-native research workspace. Eight primitives over MCP and REST.",
@@ -60,12 +68,6 @@ def create_app() -> FastAPI:
 
     app.include_router(rest_router)
 
-    # MCP mount (FastMCP HTTP app at /mcp/{api_key}). The app itself routes
-    # JSON-RPC; the {api_key} segment is captured by an ASGI middleware on
-    # the FastMCP side.
-    from .mcp_server import build_mcp_app
-
-    mcp_app = build_mcp_app()
     if mcp_app is not None:
         app.mount("/mcp", mcp_app)
 

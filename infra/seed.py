@@ -18,6 +18,17 @@ import sys
 import asyncpg
 import bcrypt
 
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None
+
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+if load_dotenv is not None:
+    load_dotenv(REPO_ROOT / ".env")
 
 DEMO_EMAIL = os.environ.get("SEED_EMAIL", "demo@margin.dev")
 DEMO_AGENT_NAME = os.environ.get("SEED_AGENT_NAME", "Demo Agent")

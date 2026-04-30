@@ -6,13 +6,20 @@ Groq, R2, Resend) gracefully degrade when their keys are absent.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Walk up from this file (apps/api/src/margin_api/config.py) to the repo root
+# so `.env` is found regardless of which directory uvicorn was launched from.
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+_ENV_FILE = _REPO_ROOT / ".env"
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(str(_ENV_FILE), ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,

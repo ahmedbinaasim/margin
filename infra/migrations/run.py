@@ -16,11 +16,19 @@ from pathlib import Path
 
 import asyncpg
 
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None
+
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent
+REPO_ROOT = MIGRATIONS_DIR.parent.parent
 
 
 async def main() -> int:
+    if load_dotenv is not None:
+        load_dotenv(REPO_ROOT / ".env")
     dsn = os.environ.get("DATABASE_URL")
     if not dsn:
         print("error: DATABASE_URL is not set", file=sys.stderr)

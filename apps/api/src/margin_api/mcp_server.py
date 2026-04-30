@@ -400,19 +400,31 @@ class APIKeyPathMiddleware:
             return await self.app(scope, receive, send)
 
         raw_path = scope.get("path", "")
-        if not raw_path or raw_path == "/":
+        # The outer FastAPI mount at /mcp may or may not strip the prefix
+        # before it reaches us (Starlette behavior varies across versions and
+        # ASGI middleware stacks). Normalize so we always work with a path
+        # whose first segment is the api key.
+        if raw_path.startswith("/mcp/"):
+            inner = raw_path[len("/mcp"):]   # "/<api_key>[/...]"
+        elif raw_path == "/mcp":
+            inner = "/"
+        else:
+            inner = raw_path
+
+        if not inner or inner == "/":
             return await self._send_error(send, 401, "missing api key in path")
 
-        parts = raw_path.lstrip("/").split("/", 1)
+        parts = inner.lstrip("/").split("/", 1)
         api_key = parts[0]
         rest = "/" + parts[1] if len(parts) > 1 else "/"
 
         try:
             agent = await _resolve_key(api_key)
-        except Exception:
-            return await self._send_error(send, 401, "invalid api key")
+        except Exception as e:
+            return await self._send_error(send, 401, f"invalid api key: {type(e).__name__}: {e}")
 
-        # Stash Agent into the ASGI state so the FastMCP request state can read it.
+        # FastMCP's http_app(path="/") exposes its endpoint at root, so we
+        # forward whatever follows the api_key (defaults to "/").
         new_scope = dict(scope)
         new_scope["path"] = rest
         new_scope["raw_path"] = rest.encode("utf-8")
@@ -438,7 +450,28 @@ class APIKeyPathMiddleware:
         await send({"type": "http.response.body", "body": body})
 
 
+_inner_mcp_app = None
+
+
+def get_inner_mcp_app():
+    """Return the underlying FastMCP ASGI app (cached).
+
+    Exposed so the parent FastAPI app can run ``inner.lifespan`` inside its
+    own lifespan — FastMCP's streamable-http session manager initializes its
+    task group there.
+    """
+    global _inner_mcp_app
+    if _inner_mcp_app is None:
+        _inner_mcp_app = mcp.http_app(
+            transport="streamable-http", stateless_http=True, path="/"
+        )
+    return _inner_mcp_app
+
+
 def build_mcp_app():
-    """Return the ASGI app to mount at ``/mcp``."""
-    inner = mcp.http_app(transport="streamable-http", stateless_http=True)
-    return APIKeyPathMiddleware(inner)
+    """Return the ASGI app to mount at ``/mcp``.
+
+    ``path="/"`` puts FastMCP's streamable-http endpoint at the inner-app root,
+    so APIKeyPathMiddleware can forward requests after stripping the api key.
+    """
+    return APIKeyPathMiddleware(get_inner_mcp_app())

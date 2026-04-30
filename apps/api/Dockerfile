@@ -31,6 +31,8 @@ RUN uv venv /opt/venv && \
 ENV PATH="/opt/venv/bin:$PATH"
 
 # Copy source and install the package itself.
+# README.md is required because pyproject.toml declares `readme = "README.md"`.
+COPY README.md ./
 COPY src ./src
 RUN UV_PROJECT_ENVIRONMENT=/opt/venv uv pip install --no-deps .
 

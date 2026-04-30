@@ -16,7 +16,7 @@ jobs:
         run: |
           set -euo pipefail
           for i in 1 2 3; do
-            if curl -fsS --max-time 60 "https://api.margin.dev/healthz" > /dev/null; then
+            if curl -fsS --max-time 60 "https://margin-api-e1d3.onrender.com/healthz" > /dev/null; then
               echo "Ping $i OK"
               exit 0
             fi

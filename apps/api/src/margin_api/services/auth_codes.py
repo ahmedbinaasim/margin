@@ -2,14 +2,55 @@
 
 from __future__ import annotations
 
+import logging
 import secrets
 from datetime import UTC, datetime, timedelta
+from email.message import EmailMessage
 
 from ..auth import hash_code
 from ..config import get_settings
 from ..db import acquire
+from ..email_templates import magic_link_html, magic_link_text
 
 CODE_TTL_MIN = 10
+
+_log = logging.getLogger(__name__)
+
+
+async def _send_magic_link(email: str, code: str) -> bool:
+    """Send the magic-link via SMTP. Returns True on success.
+
+    Provider-agnostic: any SMTP server works (Resend, Brevo, SMTP2GO, Gmail, etc.)
+    by setting SMTP_HOST/PORT/USERNAME/PASSWORD env vars. If SMTP_HOST or
+    SMTP_PASSWORD is unset, returns False — the caller surfaces the code in
+    the API response (dev escape hatch).
+    """
+    settings = get_settings()
+    if not (settings.smtp_host and settings.smtp_password):
+        return False
+
+    try:
+        import aiosmtplib
+
+        msg = EmailMessage()
+        msg["From"] = settings.smtp_from
+        msg["To"] = email
+        msg["Subject"] = f"Your Margin sign-in code: {code}"
+        msg.set_content(magic_link_text(code, CODE_TTL_MIN))
+        msg.add_alternative(magic_link_html(code, CODE_TTL_MIN), subtype="html")
+
+        await aiosmtplib.send(
+            msg,
+            hostname=settings.smtp_host,
+            port=settings.smtp_port,
+            username=settings.smtp_username,
+            password=settings.smtp_password,
+            use_tls=settings.smtp_use_tls,
+        )
+        return True
+    except Exception as e:
+        _log.warning("smtp_send_failed email=%s err=%r", email, e)
+        return False
 
 
 def _new_code() -> str:
@@ -22,7 +63,6 @@ async def request_code(email: str) -> tuple[str, bool]:
     persisted hashed; the plaintext is returned so the caller can email it
     or surface it in the dev-mode response.
     """
-    settings = get_settings()
     code = _new_code()
     expires = datetime.now(UTC) + timedelta(minutes=CODE_TTL_MIN)
 
@@ -46,27 +86,7 @@ async def request_code(email: str) -> tuple[str, bool]:
             expires,
         )
 
-    sent = False
-    if settings.resend_api_key:
-        try:
-            import resend
-
-            resend.api_key = settings.resend_api_key
-            resend.Emails.send(
-                {
-                    "from": "Margin <noreply@margin.dev>",
-                    "to": [email],
-                    "subject": f"Your Margin sign-in code: {code}",
-                    "text": (
-                        f"Your sign-in code is: {code}\n\n"
-                        f"It expires in {CODE_TTL_MIN} minutes."
-                    ),
-                }
-            )
-            sent = True
-        except Exception:
-            sent = False
-
+    sent = await _send_magic_link(email, code)
     return code, sent
 
 

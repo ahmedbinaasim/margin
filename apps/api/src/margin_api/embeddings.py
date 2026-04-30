@@ -14,10 +14,35 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import math
 from collections.abc import Sequence
 
+import httpx
+from tenacity import (
+    AsyncRetrying,
+    RetryError,
+    retry_if_exception,
+    stop_after_attempt,
+    wait_exponential,
+)
+
 from .config import get_settings
+
+_log = logging.getLogger(__name__)
+
+
+def _is_voyage_retryable(exc: BaseException) -> bool:
+    """Retry on transient network/server errors. Skip 4xx (except 429)."""
+    if isinstance(exc, (httpx.TimeoutException, httpx.ReadError, httpx.ConnectError, httpx.RemoteProtocolError)):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        return code == 429 or code >= 500
+    # voyageai SDK raises its own exception types — best-effort retry on anything
+    # whose name suggests transient failure.
+    name = type(exc).__name__.lower()
+    return any(s in name for s in ("timeout", "ratelimit", "server", "connection"))
 
 _voyage_client = None
 _local_model = None
@@ -76,11 +101,18 @@ def _ensure_local_model():
 async def _embed_voyage(texts: Sequence[str], input_type: str) -> list[list[float]]:
     settings = get_settings()
     client = _get_voyage_client()
-    resp = await client.embed(
-        texts=list(texts),
-        model=settings.voyage_embed_model,
-        input_type=input_type,
-    )
+    async for attempt in AsyncRetrying(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=0.2, min=0.2, max=1.5),
+        retry=retry_if_exception(_is_voyage_retryable),
+        reraise=True,
+    ):
+        with attempt:
+            resp = await client.embed(
+                texts=list(texts),
+                model=settings.voyage_embed_model,
+                input_type=input_type,
+            )
     return [_truncate_and_renormalize(e, settings.embed_dim) for e in resp.embeddings]
 
 
@@ -95,8 +127,13 @@ async def _embed_local(texts: Sequence[str]) -> list[list[float]]:
 
 async def embed(
     texts: Sequence[str], input_type: str = "document"
-) -> list[list[float]]:
-    """Primary: Voyage. Fallback (any exception): local bge-small. 768d unit vectors."""
+) -> list[list[float] | None]:
+    """Primary: Voyage (with 3-retry exp backoff). Fallback: local bge-small.
+
+    If BOTH paths fail, returns ``None`` for that text instead of raising.
+    Callers must handle ``None`` (e.g. INSERT with embedding=NULL and degrade
+    semantic recall for that row). Aligned by index with the input list.
+    """
 
     if not texts:
         return []
@@ -108,20 +145,30 @@ async def embed(
     cached: list[list[float] | None] = [_embed_cache.get(k) for k in keys]
     todo = [(i, t) for i, (t, c) in enumerate(zip(texts, cached, strict=True)) if c is None]
     if todo:
+        todo_texts = [t for _, t in todo]
+        new_vecs: list[list[float] | None]
         try:
-            new_vecs = await _embed_voyage([t for _, t in todo], input_type)
-        except Exception:
-            new_vecs = await _embed_local([t for _, t in todo])
+            new_vecs = list(await _embed_voyage(todo_texts, input_type))
+        except (RetryError, Exception) as voyage_exc:
+            try:
+                new_vecs = list(await _embed_local(todo_texts))
+            except Exception as local_exc:
+                _log.warning(
+                    "embed_both_paths_failed voyage=%r local=%r count=%d",
+                    voyage_exc, local_exc, len(todo_texts),
+                )
+                new_vecs = [None] * len(todo_texts)
         for (i, _), v in zip(todo, new_vecs, strict=True):
             cached[i] = v
-            _embed_cache[keys[i]] = v
+            if v is not None:
+                _embed_cache[keys[i]] = v
 
     # Trim cache (LRU-ish: just drop arbitrary entries when over limit)
     if len(_embed_cache) > _CACHE_LIMIT:
         for k in list(_embed_cache.keys())[: len(_embed_cache) - _CACHE_LIMIT]:
             _embed_cache.pop(k, None)
 
-    return [v for v in cached if v is not None]
+    return cached
 
 
 def clear_cache() -> None:

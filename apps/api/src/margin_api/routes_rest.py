@@ -25,7 +25,7 @@ from __future__ import annotations
 import json
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -119,6 +119,24 @@ async def create_agent(body: m.CreateAgentInput, owner: OwnerDep) -> m.CreateAge
 async def list_agents(owner: OwnerDep) -> list[m.AgentSummary]:
     rows = await agents_svc.list_agents_for_owner(owner.owner_id)
     return [m.AgentSummary(**r) for r in rows]
+
+
+@router.patch("/agents/{agent_id}", response_model=m.AgentSummary)
+async def update_agent(
+    agent_id: str, body: m.UpdateAgentInput, owner: OwnerDep
+) -> m.AgentSummary:
+    row = await agents_svc.update_agent_name(owner.owner_id, agent_id, body.name)
+    if row is None:
+        raise HTTPException(status_code=404, detail="agent not found")
+    return m.AgentSummary(**row)
+
+
+@router.delete("/agents/{agent_id}", status_code=204)
+async def delete_agent(agent_id: str, owner: OwnerDep) -> Response:
+    ok = await agents_svc.delete_agent(owner.owner_id, agent_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="agent not found")
+    return Response(status_code=204)
 
 
 # ---------- Eight primitives (agent-keyed) ----------

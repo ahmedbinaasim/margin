@@ -98,6 +98,25 @@ export const api = {
       body: JSON.stringify({ name }),
     });
   },
+  updateAgent(agentId: string, name: string, token: string) {
+    return request<AgentSummary>(`/v1/agents/${encodeURIComponent(agentId)}`, {
+      method: "PATCH",
+      auth: token,
+      body: JSON.stringify({ name }),
+    });
+  },
+  async deleteAgent(agentId: string, token: string): Promise<void> {
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+    };
+    const res = await fetch(
+      `${API_BASE}/v1/agents/${encodeURIComponent(agentId)}`,
+      { method: "DELETE", headers }
+    );
+    if (!res.ok && res.status !== 204) {
+      throw new HttpError(`${res.status} ${res.statusText}`, res.status);
+    }
+  },
   listProjects(agentKey: string) {
     return request<{ projects: ProjectSummary[]; total: number }>(
       "/v1/projects",

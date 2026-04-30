@@ -48,7 +48,17 @@ class Settings(BaseSettings):
     r2_bucket: str = "margin-pages"
     r2_endpoint: str | None = None
 
-    # --- Email (optional; if absent, magic-link code is returned in the API response) ---
+    # --- Email (SMTP; if smtp_host unset, magic-link code is returned in the API response) ---
+    # Default config uses Resend's SMTP endpoint. Switching providers is just
+    # changing these env vars; the code path is provider-agnostic.
+    smtp_host: str | None = None
+    smtp_port: int = 465
+    smtp_username: str = "resend"
+    smtp_password: str | None = None
+    smtp_from: str = "Margin <noreply@margin.dev>"
+    smtp_use_tls: bool = True
+
+    # Legacy — kept so existing deploys don't break on env load. No longer read.
     resend_api_key: str | None = None
 
     # --- Rate limiting ---

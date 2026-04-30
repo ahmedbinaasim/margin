@@ -20,9 +20,15 @@ export default function Dashboard() {
   const [token, setToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const [sendingCode, setSendingCode] = useState(false);
+
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [newAgentName, setNewAgentName] = useState("");
   const [justMinted, setJustMinted] = useState<CreateAgentOutput | null>(null);
+  // Per-row UI state: id of the agent currently being renamed (if any) and the
+  // draft text for that rename.
+  const [editingAgentId, setEditingAgentId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState("");
 
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [activeAgentKey, setActiveAgentKey] = useState<string | null>(null);
@@ -61,12 +67,52 @@ export default function Dashboard() {
   async function onRequestEmail(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setSendingCode(true);
     try {
       const r = await api.authRequest(email);
       setDevCode(r.dev_code ?? null);
       setStage("code");
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setSendingCode(false);
+    }
+  }
+
+  async function onRenameAgent(agentId: string) {
+    if (!token) return;
+    const trimmed = editingName.trim();
+    if (!trimmed) {
+      setEditingAgentId(null);
+      return;
+    }
+    // Optimistic update
+    const prev = agents;
+    setAgents((rows) =>
+      rows.map((r) => (r.agent_id === agentId ? { ...r, name: trimmed } : r))
+    );
+    setEditingAgentId(null);
+    try {
+      await api.updateAgent(agentId, trimmed, token);
+    } catch (err) {
+      setAgents(prev);
+      setError(`rename failed: ${(err as Error).message}`);
+    }
+  }
+
+  async function onDeleteAgent(agentId: string, prefix: string) {
+    if (!token) return;
+    const ok = window.confirm(
+      `Revoke key ${prefix}…? The connector using this key will stop working immediately. This cannot be undone.`
+    );
+    if (!ok) return;
+    const prev = agents;
+    setAgents((rows) => rows.filter((r) => r.agent_id !== agentId));
+    try {
+      await api.deleteAgent(agentId, token);
+    } catch (err) {
+      setAgents(prev);
+      setError(`delete failed: ${(err as Error).message}`);
     }
   }
 
@@ -138,9 +184,37 @@ export default function Dashboard() {
           />
           <button
             type="submit"
-            className="w-full rounded-md bg-[#f5dd5b] px-3 py-2 text-sm font-medium text-black"
+            disabled={sendingCode}
+            className="flex w-full items-center justify-center gap-2 rounded-md bg-[#f5dd5b] px-3 py-2 text-sm font-medium text-black transition disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Send code
+            {sendingCode ? (
+              <>
+                <svg
+                  className="h-4 w-4 animate-spin"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                  />
+                </svg>
+                Sending…
+              </>
+            ) : (
+              "Send code"
+            )}
           </button>
         </form>
         {error && <div className="mt-3 text-sm text-[#ffaa66]">{error}</div>}
@@ -232,22 +306,118 @@ export default function Dashboard() {
               No agents yet.
             </li>
           )}
-          {agents.map((a) => (
-            <li
-              key={a.agent_id}
-              className="flex items-center justify-between px-4 py-3 text-sm"
-            >
-              <span>
-                <span className="font-medium">{a.name}</span>{" "}
-                <span className="font-mono text-xs text-[#8a8e93]">
-                  {a.key_prefix}…
+          {agents.map((a) => {
+            const isEditing = editingAgentId === a.agent_id;
+            return (
+              <li
+                key={a.agent_id}
+                className="flex items-center justify-between gap-3 px-4 py-3 text-sm"
+              >
+                <span className="min-w-0 flex-1">
+                  {isEditing ? (
+                    <span className="flex items-center gap-2">
+                      <input
+                        autoFocus
+                        value={editingName}
+                        onChange={(e) => setEditingName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") onRenameAgent(a.agent_id);
+                          if (e.key === "Escape") setEditingAgentId(null);
+                        }}
+                        className="min-w-0 flex-1 rounded border border-[#1f2227] bg-[#0e1115] px-2 py-1 text-sm"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => onRenameAgent(a.agent_id)}
+                        className="rounded bg-[#f5dd5b] px-2 py-1 text-xs font-medium text-black"
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingAgentId(null)}
+                        className="rounded border border-[#1f2227] px-2 py-1 text-xs text-[#8a8e93]"
+                      >
+                        Cancel
+                      </button>
+                    </span>
+                  ) : (
+                    <>
+                      <span className="font-medium">{a.name}</span>{" "}
+                      <span className="font-mono text-xs text-[#8a8e93]">
+                        {a.key_prefix}…
+                      </span>
+                    </>
+                  )}
                 </span>
-              </span>
-              <span className="text-xs text-[#8a8e93]">
-                {a.last_used_at ? `last used ${a.last_used_at.slice(0, 10)}` : "never used"}
-              </span>
-            </li>
-          ))}
+                {!isEditing && (
+                  <>
+                    <span className="text-xs text-[#8a8e93]">
+                      {a.last_used_at
+                        ? `last used ${a.last_used_at.slice(0, 10)}`
+                        : "never used"}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        title="Rename"
+                        aria-label={`Rename ${a.name}`}
+                        onClick={() => {
+                          setEditingAgentId(a.agent_id);
+                          setEditingName(a.name);
+                        }}
+                        className="rounded p-1 text-[#8a8e93] hover:bg-[#1f2227] hover:text-[#e8e6e3]"
+                      >
+                        <svg
+                          className="h-4 w-4"
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                          strokeWidth={2}
+                          aria-hidden="true"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M15.232 5.232l3.536 3.536M9 13l6.586-6.586a2 2 0 112.828 2.828L11.828 15.828a2 2 0 01-1.414.586H8v-2.414a2 2 0 01.586-1.414z"
+                          />
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M5 21h14"
+                          />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        title="Revoke key"
+                        aria-label={`Revoke ${a.name}`}
+                        onClick={() => onDeleteAgent(a.agent_id, a.key_prefix)}
+                        className="rounded p-1 text-[#8a8e93] hover:bg-[#1f2227] hover:text-[#ffaa66]"
+                      >
+                        <svg
+                          className="h-4 w-4"
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                          strokeWidth={2}
+                          aria-hidden="true"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M6 7h12M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2m-7 0v12a2 2 0 002 2h6a2 2 0 002-2V7"
+                          />
+                        </svg>
+                      </button>
+                    </span>
+                  </>
+                )}
+              </li>
+            );
+          })}
         </ul>
       </section>
 

@@ -67,7 +67,7 @@ async def _resolve_key(plaintext: str) -> Agent:
             """
             SELECT agent_id, owner_id, name, key_prefix, key_hash
             FROM agents
-            WHERE key_prefix = $1
+            WHERE key_prefix = $1 AND deleted_at IS NULL
             """,
             prefix,
         )

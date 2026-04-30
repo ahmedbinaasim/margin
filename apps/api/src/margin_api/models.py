@@ -55,6 +55,10 @@ class AddFindingOutput(BaseModel):
     created_at: datetime
     deduped: bool
     resource_uri: str
+    degraded: bool = False
+    """True when the finding was persisted without an embedding (both Voyage and
+    the local fallback failed). The row is preserved but won't appear in
+    semantic ``query_findings`` results until re-embedded."""
 
 
 # ----- cite -----
@@ -203,6 +207,12 @@ class AuthVerifyOutput(BaseModel):
 
 
 class CreateAgentInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120)
+
+
+class UpdateAgentInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=120)

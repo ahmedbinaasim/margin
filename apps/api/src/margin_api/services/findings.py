@@ -66,8 +66,12 @@ async def add_finding(
             }
 
     # Embed once (lifts up out of the connection scope so we don't hold it).
+    # ``embed`` returns None for a text when both Voyage and the local fallback
+    # fail; we INSERT with embedding=NULL so the finding is preserved (semantic
+    # recall is degraded for that row until a future re-embed pass).
     vec = (await embeddings.embed([f"{claim} {evidence}"], input_type="document"))[0]
-    vec_lit = _vec_to_pgvector(vec)
+    vec_lit = _vec_to_pgvector(vec) if vec is not None else None
+    degraded = vec is None
 
     async with acquire() as conn:
         async with conn.transaction():
@@ -76,7 +80,9 @@ async def add_finding(
                 INSERT INTO findings
                     (project_id, agent_id, claim, evidence, source_url,
                      confidence, contradicts, embedding, content_hash)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8::vector, $9)
+                VALUES ($1, $2, $3, $4, $5, $6, $7,
+                        CASE WHEN $8::text IS NULL THEN NULL ELSE $8::vector END,
+                        $9)
                 ON CONFLICT (project_id, content_hash) DO NOTHING
                 RETURNING finding_id, project_id, created_at
                 """,
@@ -104,6 +110,7 @@ async def add_finding(
                     "project_id": existing["project_id"],
                     "created_at": existing["created_at"],
                     "deduped": True,
+                    "degraded": False,
                 }
 
             await projects_svc.touch(project_id, conn=conn)
@@ -116,6 +123,7 @@ async def add_finding(
                     "finding_id": row["finding_id"],
                     "claim": claim[:120],
                     "confidence": confidence,
+                    "degraded": degraded,
                 },
             )
 
@@ -124,6 +132,7 @@ async def add_finding(
         "project_id": row["project_id"],
         "created_at": row["created_at"],
         "deduped": False,
+        "degraded": degraded,
     }
 
 
@@ -137,6 +146,11 @@ async def query_findings(
     """Cosine semantic search over findings in one project."""
 
     qvec = (await embeddings.embed([semantic_query], input_type="query"))[0]
+    if qvec is None:
+        # Both Voyage and local fallback failed for the query text — we can't
+        # rank by similarity. Return an empty list rather than 500ing; callers
+        # that need recall can retry later when embeddings recover.
+        return []
     qvec_lit = _vec_to_pgvector(qvec)
 
     async with acquire() as conn:

@@ -4,7 +4,6 @@ export const API_BASE =
   (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_API_BASE) ||
   "http://localhost:8080";
 
-export type AuthRequestOutput = { sent: boolean; dev_code?: string | null };
 export type AuthVerifyOutput = { token: string; owner_id: string };
 export type AgentSummary = {
   agent_id: string;
@@ -76,16 +75,10 @@ async function request<T>(
 }
 
 export const api = {
-  authRequest(email: string) {
-    return request<AuthRequestOutput>("/v1/auth/request", {
+  authFirebase(idToken: string) {
+    return request<AuthVerifyOutput>("/v1/auth/firebase", {
       method: "POST",
-      body: JSON.stringify({ email }),
-    });
-  },
-  authVerify(email: string, code: string) {
-    return request<AuthVerifyOutput>("/v1/auth/verify", {
-      method: "POST",
-      body: JSON.stringify({ email, code }),
+      body: JSON.stringify({ id_token: idToken }),
     });
   },
   listAgents(token: string) {

@@ -14,7 +14,7 @@ Endpoints:
     GET    /v1/events/recent                  → polling fallback
 
 Dashboard auth (separate JWT scope, not API-key auth):
-    POST /v1/auth/request, POST /v1/auth/verify
+    POST /v1/auth/firebase
     POST /v1/agents, GET /v1/agents
     GET  /v1/me
     POST /v1/reviews/{review_id}/decide
@@ -25,7 +25,7 @@ from __future__ import annotations
 import json
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -37,12 +37,10 @@ from .auth import (
     issue_owner_token,
 )
 from .config import get_settings
+from .firebase_auth import verify_google_id_token
 from .rate_limit import check as rate_check
 from .services import (
     agents as agents_svc,
-)
-from .services import (
-    auth_codes as auth_codes_svc,
 )
 from .services import (
     citations as citations_svc,
@@ -52,6 +50,9 @@ from .services import (
 )
 from .services import (
     findings as findings_svc,
+)
+from .services import (
+    owners as owners_svc,
 )
 from .services import (
     projects as projects_svc,
@@ -78,22 +79,20 @@ async def _enforce_rate(agent_id: str) -> None:
 # ---------- Auth (dashboard, owner-scoped JWT) ----------
 
 
-@router.post("/auth/request", response_model=m.AuthRequestOutput)
-async def auth_request(body: m.AuthRequestInput) -> m.AuthRequestOutput:
-    code, sent = await auth_codes_svc.request_code(body.email)
-    settings = get_settings()
-    if settings.resend_api_key and sent:
-        return m.AuthRequestOutput(sent=True, dev_code=None)
-    # Dev mode: return the code in the response for testability.
-    return m.AuthRequestOutput(sent=False, dev_code=code)
+@router.post("/auth/firebase", response_model=m.AuthVerifyOutput)
+async def auth_firebase(
+    body: m.FirebaseAuthInput, bg: BackgroundTasks
+) -> m.AuthVerifyOutput:
+    """Verify a Firebase Google ID token, upsert the owner, return our JWT.
 
-
-@router.post("/auth/verify", response_model=m.AuthVerifyOutput)
-async def auth_verify(body: m.AuthVerifyInput) -> m.AuthVerifyOutput:
-    owner_id = await auth_codes_svc.verify_code(body.email, body.code)
-    if owner_id is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid or expired code")
-    token = issue_owner_token(owner_id, body.email)
+    First-time owners get a non-blocking welcome email; the response returns
+    immediately whether or not the email send succeeds.
+    """
+    decoded = verify_google_id_token(body.id_token)
+    email: str = decoded["email"]
+    name = decoded.get("name")
+    owner_id = await owners_svc.upsert_owner_and_maybe_welcome(email, name, bg)
+    token = issue_owner_token(owner_id, email)
     return m.AuthVerifyOutput(token=token, owner_id=owner_id)
 
 

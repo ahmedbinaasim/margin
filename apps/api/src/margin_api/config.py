@@ -66,6 +66,24 @@ class Settings(BaseSettings):
     # Legacy — kept so existing deploys don't break on env load. No longer read.
     resend_api_key: str | None = None
 
+    # --- Firebase Auth (Google Sign-In via Firebase Web SDK on the dashboard).
+    # All three required to enable the /v1/auth/firebase endpoint. Private key
+    # is the PEM with literal "\n" sequences (matches the format inside the
+    # downloaded service-account JSON); we unescape at init time.
+    firebase_project_id: str | None = None
+    firebase_client_email: str | None = None
+    firebase_private_key: str | None = None
+
+    @property
+    def firebase_enabled(self) -> bool:
+        return all(
+            [
+                self.firebase_project_id,
+                self.firebase_client_email,
+                self.firebase_private_key,
+            ]
+        )
+
     # --- Rate limiting ---
     rate_limit_per_minute: int = 60
 

@@ -10,17 +10,14 @@ import {
 import { ActivityTimeline } from "@/components/ActivityTimeline";
 import { CodeBlock } from "@/components/CodeBlock";
 
-type Stage = "email" | "code" | "ready";
+type Stage = "signin" | "ready";
 
 export default function Dashboard() {
-  const [stage, setStage] = useState<Stage>("email");
-  const [email, setEmail] = useState("");
-  const [code, setCode] = useState("");
-  const [devCode, setDevCode] = useState<string | null>(null);
+  const [stage, setStage] = useState<Stage>("signin");
   const [token, setToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [sendingCode, setSendingCode] = useState(false);
+  const [signingIn, setSigningIn] = useState(false);
 
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [newAgentName, setNewAgentName] = useState("");
@@ -64,18 +61,23 @@ export default function Dashboard() {
       });
   }, [activeAgentKey]);
 
-  async function onRequestEmail(e: React.FormEvent) {
-    e.preventDefault();
+  async function onContinueWithGoogle() {
     setError(null);
-    setSendingCode(true);
+    setSigningIn(true);
     try {
-      const r = await api.authRequest(email);
-      setDevCode(r.dev_code ?? null);
-      setStage("code");
+      // Lazy-import the Firebase SDK so its ~80 KB chunk only loads on click.
+      const { signInWithPopup, GoogleAuthProvider } = await import("firebase/auth");
+      const { firebaseAuth } = await import("@/lib/firebase");
+      const result = await signInWithPopup(firebaseAuth, new GoogleAuthProvider());
+      const idToken = await result.user.getIdToken();
+      const r = await api.authFirebase(idToken);
+      localStorage.setItem("margin.token", r.token);
+      setToken(r.token);
+      setStage("ready");
     } catch (err) {
       setError((err as Error).message);
     } finally {
-      setSendingCode(false);
+      setSigningIn(false);
     }
   }
 
@@ -116,19 +118,6 @@ export default function Dashboard() {
     }
   }
 
-  async function onVerifyCode(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    try {
-      const r = await api.authVerify(email, code);
-      localStorage.setItem("margin.token", r.token);
-      setToken(r.token);
-      setStage("ready");
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  }
-
   async function onMintAgent(e: React.FormEvent) {
     e.preventDefault();
     if (!token) return;
@@ -161,96 +150,77 @@ export default function Dashboard() {
     setActiveAgentKey(null);
     setAgents([]);
     setProjects([]);
-    setStage("email");
+    setStage("signin");
   }
 
-  if (stage === "email") {
+  if (stage === "signin") {
     return (
       <main className="mx-auto max-w-md px-6 py-24">
         <h1 className="text-2xl font-semibold tracking-tight">
           Sign in to Margin
         </h1>
         <p className="mt-2 text-sm text-[#8a8e93]">
-          We&apos;ll email you a 6-digit code. No passwords.
+          Continue with your Google account.
         </p>
-        <form onSubmit={onRequestEmail} className="mt-6 space-y-3">
-          <input
-            type="email"
-            required
-            placeholder="you@example.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full rounded-md border border-[#1f2227] bg-[#0e1115] px-3 py-2 text-sm"
-          />
-          <button
-            type="submit"
-            disabled={sendingCode}
-            className="flex w-full items-center justify-center gap-2 rounded-md bg-[#f5dd5b] px-3 py-2 text-sm font-medium text-black transition disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {sendingCode ? (
-              <>
-                <svg
-                  className="h-4 w-4 animate-spin"
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  aria-hidden="true"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
-                  />
-                </svg>
-                Sending…
-              </>
-            ) : (
-              "Send code"
-            )}
-          </button>
-        </form>
-        {error && <div className="mt-3 text-sm text-[#ffaa66]">{error}</div>}
-      </main>
-    );
-  }
-
-  if (stage === "code") {
-    return (
-      <main className="mx-auto max-w-md px-6 py-24">
-        <h1 className="text-2xl font-semibold tracking-tight">Enter your code</h1>
-        <p className="mt-2 text-sm text-[#8a8e93]">
-          Sent to <span className="font-mono">{email}</span>.
-        </p>
-        {devCode && (
-          <div className="mt-3 rounded-md border border-[#1f2227] bg-[#0e1115] p-3 text-xs text-[#a9adb1]">
-            Dev mode (no Resend key configured). Your code:{" "}
-            <span className="font-mono text-[#f5dd5b]">{devCode}</span>
-          </div>
-        )}
-        <form onSubmit={onVerifyCode} className="mt-6 space-y-3">
-          <input
-            inputMode="numeric"
-            maxLength={6}
-            placeholder="123456"
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            className="w-full rounded-md border border-[#1f2227] bg-[#0e1115] px-3 py-2 font-mono text-lg tracking-widest"
-          />
-          <button
-            type="submit"
-            className="w-full rounded-md bg-[#f5dd5b] px-3 py-2 text-sm font-medium text-black"
-          >
-            Verify
-          </button>
-        </form>
+        <button
+          onClick={onContinueWithGoogle}
+          disabled={signingIn}
+          className="mt-6 flex w-full items-center justify-center gap-3 rounded-md bg-[#f5dd5b] px-3 py-2.5 text-sm font-medium text-black transition disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {signingIn ? (
+            <>
+              <svg
+                className="h-4 w-4 animate-spin"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                />
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                />
+              </svg>
+              Signing in…
+            </>
+          ) : (
+            <>
+              <svg
+                className="h-4 w-4"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 18 18"
+                aria-hidden="true"
+              >
+                <path
+                  fill="#4285F4"
+                  d="M17.64 9.205c0-.639-.057-1.252-.164-1.841H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"
+                />
+                <path
+                  fill="#34A853"
+                  d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"
+                />
+                <path
+                  fill="#FBBC05"
+                  d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"
+                />
+                <path
+                  fill="#EA4335"
+                  d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"
+                />
+              </svg>
+              Continue with Google
+            </>
+          )}
+        </button>
         {error && <div className="mt-3 text-sm text-[#ffaa66]">{error}</div>}
       </main>
     );

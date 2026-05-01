@@ -183,22 +183,10 @@ class ListProjectsOutput(BaseModel):
 # ----- Auth (dashboard) -----
 
 
-class AuthRequestInput(BaseModel):
+class FirebaseAuthInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    email: str = Field(min_length=3, max_length=320)
-
-
-class AuthRequestOutput(BaseModel):
-    sent: bool
-    dev_code: str | None = None  # only set when RESEND_API_KEY is unset (dev mode)
-
-
-class AuthVerifyInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    email: str = Field(min_length=3, max_length=320)
-    code: str = Field(min_length=6, max_length=6)
+    id_token: str = Field(min_length=1)
 
 
 class AuthVerifyOutput(BaseModel):

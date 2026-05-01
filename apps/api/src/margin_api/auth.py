@@ -4,13 +4,13 @@ REST: ``Authorization: Bearer <key>``.
 MCP:  the key is in the URL path (``/mcp/<key>``) — Claude.ai's connector UI
 does not let users set headers (SPEC §9).
 
-Dashboard: short-lived JWTs minted by the magic-link flow identify owners,
-not agents. Owners use the dashboard to mint and list agent keys.
+Dashboard: short-lived JWTs minted by the Firebase Google sign-in flow
+identify owners, not agents. Owners use the dashboard to mint and list
+agent keys.
 """
 
 from __future__ import annotations
 
-import hashlib
 import time
 from dataclasses import dataclass
 from typing import Annotated
@@ -110,9 +110,6 @@ async def get_agent_from_path(api_key: str) -> Agent:
 
 
 # --- Dashboard JWT (owner-scoped) ---
-
-def hash_code(code: str) -> str:
-    return hashlib.sha256(code.encode()).hexdigest()
 
 
 def issue_owner_token(owner_id: str, email: str) -> str:

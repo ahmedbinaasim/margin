@@ -68,6 +68,13 @@ def create_app() -> FastAPI:
 
     app.include_router(rest_router)
 
+    # OAuth (DCR + AS endpoints + RFC 9728 metadata)
+    from .oauth.routes import owner_router as oauth_owner_router
+    from .oauth.routes import public_router as oauth_public_router
+
+    app.include_router(oauth_public_router)
+    app.include_router(oauth_owner_router)
+
     if mcp_app is not None:
         app.mount("/mcp", mcp_app)
 

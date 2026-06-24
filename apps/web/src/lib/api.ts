@@ -34,6 +34,23 @@ export type EventEnvelope = {
   payload: Record<string, unknown>;
   created_at?: string;
 };
+export type OAuthClientPublic = {
+  client_id: string;
+  client_name: string;
+  redirect_uris: string[];
+  grant_types: string[];
+  response_types: string[];
+  token_endpoint_auth_method: string;
+  logo_uri?: string | null;
+  client_uri?: string | null;
+  software_id?: string | null;
+  software_version?: string | null;
+  created_at: string;
+};
+export type OAuthAuthorizeDecisionInput = {
+  decision: "allow" | "deny";
+  auth_request: string;
+};
 export type ReportPublic = {
   report_id: string;
   project_id: string;
@@ -129,6 +146,19 @@ export const api = {
       method: "POST",
       auth: agentKey,
       body: JSON.stringify({ topic, depth }),
+    });
+  },
+  getOAuthClient(clientId: string, token: string) {
+    return request<OAuthClientPublic>(
+      `/v1/oauth/clients/${encodeURIComponent(clientId)}`,
+      { auth: token }
+    );
+  },
+  authorizeDecision(input: OAuthAuthorizeDecisionInput, token: string) {
+    return request<{ redirect_to: string }>("/v1/oauth/authorize-decision", {
+      method: "POST",
+      auth: token,
+      body: JSON.stringify(input),
     });
   },
 };

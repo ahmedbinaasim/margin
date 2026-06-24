@@ -1,9 +1,17 @@
 """FastMCP server: the eight Margin primitives, Streamable-HTTP, stateless.
 
-Identity: Claude.ai's connector UI doesn't let users set headers, so the API
-key lives in the URL path (``/mcp/<api_key>``). An ASGI middleware below
-intercepts every request, validates the key, and stashes the resolved Agent
-on ``scope["state"]["agent"]`` for the tool wrappers to read.
+Identity comes in over two paths handled by APIKeyPathMiddleware below:
+
+1. **Legacy URL-key** (``/mcp/<api_key>``) — for clients that paste a URL
+   minted from the dashboard. The key is bcrypt-verified and resolved to an
+   Agent on every request (with a 60s in-process cache).
+2. **OAuth Bearer token** (``/mcp`` + ``Authorization: Bearer <jwt>``) — for
+   modern MCP clients that follow the OAuth 2.1 + DCR flow. The JWT is
+   self-contained: signature + audience + expiry validation, no DB hit.
+
+Both paths land on the same downstream FastMCP app with the resolved Agent
+stashed on ``scope["state"]["agent"]``. Tool wrappers read it via
+``_agent_from_ctx`` regardless of which path issued it.
 
 Tool descriptions follow SPEC §4.1 verbatim — imperative voice, when/when-not,
 inline example. Eight tools, deliberately no more (SPEC §9 — agents pay
@@ -13,13 +21,15 @@ context for tool surface).
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from typing import Any
 
 from fastmcp import Context, FastMCP
 
 from . import models as m
-from .auth import _resolve_key  # type: ignore[reportPrivateUsage]
+from .auth import Agent, _resolve_key  # type: ignore[reportPrivateUsage]
 from .config import get_settings
+from .oauth.tokens import verify_access_token
 from .rate_limit import check as rate_check
 from .services import (
     citations as citations_svc,
@@ -384,12 +394,15 @@ async def list_projects(
 
 
 class APIKeyPathMiddleware:
-    """Strip ``/<api_key>`` from the path, validate, stash Agent on request.state.
+    """Resolve identity for /mcp requests and forward to FastMCP.
 
-    The mount point in main.py is ``/mcp``, so this middleware sees paths like
-    ``/<api_key>`` and ``/<api_key>/messages``. We forward the inner FastMCP
-    app the path with the key removed, and put the resolved Agent into
-    request scope state where tool wrappers can read it.
+    Two acceptable shapes:
+
+    * ``/mcp/<api_key>[/...]`` — legacy: bcrypt-verify the key, resolve to Agent
+    * ``/mcp[/...]`` with ``Authorization: Bearer <jwt>`` — OAuth: decode the JWT
+
+    On 401 from the bearer path, we emit ``WWW-Authenticate: Bearer`` per
+    RFC 9728 §5.1 so MCP clients can discover the AS automatically.
     """
 
     def __init__(self, app):
@@ -400,31 +413,37 @@ class APIKeyPathMiddleware:
             return await self.app(scope, receive, send)
 
         raw_path = scope.get("path", "")
-        # The outer FastAPI mount at /mcp may or may not strip the prefix
-        # before it reaches us (Starlette behavior varies across versions and
-        # ASGI middleware stacks). Normalize so we always work with a path
-        # whose first segment is the api key.
+        # Outer FastAPI mount at /mcp may or may not strip the prefix
+        # depending on Starlette version. Normalize either way.
         if raw_path.startswith("/mcp/"):
-            inner = raw_path[len("/mcp"):]   # "/<api_key>[/...]"
+            inner = raw_path[len("/mcp"):]   # "/<api_key>[/...]" or "/[/...]"
         elif raw_path == "/mcp":
             inner = "/"
         else:
             inner = raw_path
 
-        if not inner or inner == "/":
-            return await self._send_error(send, 401, "missing api key in path")
+        # Decide which auth path to take.
+        bearer = _read_bearer_token(scope)
+        if bearer is not None:
+            agent = await _resolve_bearer(bearer)
+            if agent is None:
+                return await self._send_oauth_401(send)
+            rest = inner if inner else "/"
+        else:
+            # Legacy URL-key path: first segment must be the key.
+            if not inner or inner == "/":
+                return await self._send_oauth_401(send)
+            parts = inner.lstrip("/").split("/", 1)
+            api_key = parts[0]
+            rest = "/" + parts[1] if len(parts) > 1 else "/"
+            try:
+                agent = await _resolve_key(api_key)
+            except Exception as e:
+                return await self._send_error(
+                    send, 401, f"invalid api key: {type(e).__name__}: {e}"
+                )
 
-        parts = inner.lstrip("/").split("/", 1)
-        api_key = parts[0]
-        rest = "/" + parts[1] if len(parts) > 1 else "/"
-
-        try:
-            agent = await _resolve_key(api_key)
-        except Exception as e:
-            return await self._send_error(send, 401, f"invalid api key: {type(e).__name__}: {e}")
-
-        # FastMCP's http_app(path="/") exposes its endpoint at root, so we
-        # forward whatever follows the api_key (defaults to "/").
+        # FastMCP's http_app(path="/") exposes its endpoint at root.
         new_scope = dict(scope)
         new_scope["path"] = rest
         new_scope["raw_path"] = rest.encode("utf-8")
@@ -433,6 +452,32 @@ class APIKeyPathMiddleware:
         new_scope["state"] = state
 
         await self.app(new_scope, receive, send)
+
+    async def _send_oauth_401(self, send) -> None:
+        """RFC 9728 §5.1 — point clients at the protected-resource metadata."""
+        settings = get_settings()
+        challenge = (
+            f'Bearer realm="margin", '
+            f'resource_metadata="{settings.api_base_url}/.well-known/oauth-protected-resource"'
+        )
+        body = json.dumps(
+            {
+                "error": "invalid_token",
+                "error_description": "missing or invalid bearer token; see resource_metadata",
+            }
+        ).encode()
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 401,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(body)).encode()),
+                    (b"www-authenticate", challenge.encode()),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": body})
 
     @staticmethod
     async def _send_error(send, status: int, detail: str) -> None:
@@ -448,6 +493,41 @@ class APIKeyPathMiddleware:
             }
         )
         await send({"type": "http.response.body", "body": body})
+
+
+def _read_bearer_token(scope) -> str | None:
+    """Extract the Bearer token from the Authorization header, if present."""
+    headers = scope.get("headers") or []
+    for k, v in headers:
+        if k == b"authorization":
+            decoded = v.decode("latin-1")
+            if decoded.lower().startswith("bearer "):
+                return decoded.split(" ", 1)[1].strip()
+    return None
+
+
+@dataclass
+class _OAuthAgent(Agent):
+    """An Agent reconstructed from a JWT — same shape as the bcrypt path."""
+
+
+async def _resolve_bearer(token: str) -> _OAuthAgent | None:
+    """Decode + validate the JWT. Returns a minimal Agent or None on failure.
+
+    No DB lookup — agent_id and owner_id are carried in the JWT itself, and
+    the tool handlers only ever read ``agent.agent_id``. Revocation works on
+    the token's expiry boundary (1h); for instant kill-switch use the legacy
+    path or wait for refresh-token rotation.
+    """
+    claims = verify_access_token(token)
+    if claims is None:
+        return None
+    return _OAuthAgent(
+        agent_id=claims["sub"],
+        owner_id=claims["owner_id"],
+        name="",
+        key_prefix="",
+    )
 
 
 _inner_mcp_app = None

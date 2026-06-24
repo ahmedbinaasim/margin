@@ -222,6 +222,66 @@ class AgentSummary(BaseModel):
     created_at: datetime
 
 
+# ----- OAuth 2.1 + DCR -----
+
+
+class OAuthClientRegistrationInput(BaseModel):
+    """RFC 7591 client registration request body. Only the fields we accept."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    client_name: str = Field(min_length=1, max_length=200)
+    redirect_uris: list[str] = Field(min_length=1, max_length=10)
+    grant_types: list[str] | None = None
+    response_types: list[str] | None = None
+    token_endpoint_auth_method: str = "none"
+    logo_uri: str | None = None
+    client_uri: str | None = None
+    software_id: str | None = None
+    software_version: str | None = None
+    application_type: str | None = None  # ignored but accepted (OIDC clients send it)
+
+
+class OAuthClientResponse(BaseModel):
+    """RFC 7591 client registration response (and the public lookup payload)."""
+
+    client_id: str
+    client_name: str
+    redirect_uris: list[str]
+    grant_types: list[str]
+    response_types: list[str]
+    token_endpoint_auth_method: str
+    logo_uri: str | None = None
+    client_uri: str | None = None
+    software_id: str | None = None
+    software_version: str | None = None
+    created_at: datetime
+
+
+class OAuthAuthorizeDecisionInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["allow", "deny"]
+    auth_request: str  # signed blob from /oauth/authorize
+
+
+class OAuthAuthorizeDecisionOutput(BaseModel):
+    redirect_to: str
+
+
+class OAuthTokenResponse(BaseModel):
+    access_token: str
+    token_type: Literal["Bearer"] = "Bearer"
+    expires_in: int
+    refresh_token: str
+    scope: str | None = None
+
+
+class OAuthErrorResponse(BaseModel):
+    error: str
+    error_description: str | None = None
+
+
 # ----- Reports public -----
 
 

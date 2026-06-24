@@ -73,6 +73,17 @@ export default function Dashboard() {
       const r = await api.authFirebase(idToken);
       localStorage.setItem("margin.token", r.token);
       setToken(r.token);
+      // If we landed on /app because /app/authorize bounced us here for sign-in,
+      // honor the saved redirect target now that we have a token.
+      const redirect =
+        typeof window !== "undefined"
+          ? sessionStorage.getItem("margin.post_signin_redirect")
+          : null;
+      if (redirect) {
+        sessionStorage.removeItem("margin.post_signin_redirect");
+        window.location.href = redirect;
+        return;
+      }
       setStage("ready");
     } catch (err) {
       setError((err as Error).message);
